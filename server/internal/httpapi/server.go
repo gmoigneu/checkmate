@@ -90,6 +90,9 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /v1/grants", s.handleListGrants)
 	api.HandleFunc("DELETE /v1/grants/{id}", s.handleRevokeGrant)
 
+	api.HandleFunc("GET /v1/sync", s.handleSync)
+	api.HandleFunc("GET /v1/brief", s.handleBrief)
+
 	api.HandleFunc("GET /v1/me", s.handleMe)
 	api.HandleFunc("POST /v1/logout", s.handleLogout)
 	api.HandleFunc("GET /v1/sources", s.handleListSources)

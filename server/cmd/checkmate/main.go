@@ -61,6 +61,9 @@ Environment:
   CHECKMATE_GOOGLE_CLIENT_ID     Google OAuth client id
   CHECKMATE_GOOGLE_CLIENT_SECRET Google OAuth client secret
   CHECKMATE_DEFAULT_TIMEZONE     zone for new accounts     (default UTC)
+  CHECKMATE_OAUTH_ENABLED        OAuth 2.1 server for MCP  (default true)
+  CHECKMATE_OAUTH_ALLOW_DCR      RFC 7591 registration     (default true)
+  CHECKMATE_OAUTH_MAX_DYNAMIC_CLIENTS  cap on open registration (default 200)
 `
 
 func main() {
