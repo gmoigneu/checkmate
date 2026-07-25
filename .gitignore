@@ -1,0 +1,21 @@
+.DS_Store
+
+# Go build output
+server/bin/
+
+# Local sqlite databases (including WAL sidecars)
+*.db
+*.db-shm
+*.db-wal
+server/data/
+
+# Node / Tanstack frontend (added later)
+node_modules/
+dist/
+.env
+.env.local
+
+# Editors
+.idea/
+.vscode/
+*.swp
