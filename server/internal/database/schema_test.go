@@ -133,6 +133,28 @@ func TestForeignKeysEnforced(t *testing.T) {
 	}
 }
 
+func TestTaskPriorityVocabularyIsEnforced(t *testing.T) {
+	db := newTestDB(t)
+	uid := newUser(t, db)
+	cid := newContext(t, db, uid, "work")
+
+	if _, err := db.Exec(
+		`INSERT INTO tasks (id, user_id, context_id, title, priority)
+		 VALUES (?, ?, ?, ?, 'critical')`,
+		id.New(), uid, cid, "invalid priority",
+	); err == nil {
+		t.Fatal("inserting an unknown task priority succeeded, want CHECK violation")
+	}
+
+	if _, err := db.Exec(
+		`INSERT INTO tasks (id, user_id, context_id, title, priority)
+		 VALUES (?, ?, ?, ?, 'urgent')`,
+		id.New(), uid, cid, "valid priority",
+	); err != nil {
+		t.Fatalf("inserting an urgent task: %v", err)
+	}
+}
+
 func TestRevIsGloballyMonotonic(t *testing.T) {
 	db := newTestDB(t)
 	uid := newUser(t, db)

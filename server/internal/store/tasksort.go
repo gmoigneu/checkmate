@@ -11,8 +11,9 @@ import (
 
 // Task sorting, and the pagination that has to survive it.
 //
-// The default order is newest-created-first, which is free: ids are UUIDv7, so
-// id DESC is creation order and the primary key already provides it.
+// The default order is priority first (urgent, high, medium, low, unprioritized)
+// and newest-created-first within each rank. ids are UUIDv7, so id DESC supplies
+// the creation-time tiebreak without another stored value.
 //
 // Any other order needs a keyset cursor rather than an offset. Offsets drift when
 // rows are inserted or updated between pages, which for a task list means quietly
@@ -32,8 +33,9 @@ import (
 // SortField names a sortable column.
 type SortField string
 
-// Sortable fields. created_at is the default and is served by the primary key.
+// Sortable fields. Omitting the field uses priority followed by creation time.
 const (
+	SortPriority        SortField = "priority"
 	SortCreatedAt       SortField = "created_at"
 	SortUpdatedAt       SortField = "updated_at"
 	SortDueOn           SortField = "due_on"
@@ -46,7 +48,7 @@ const (
 
 // SortFields is every accepted value, for validation and for documenting the API.
 var SortFields = []string{
-	string(SortCreatedAt), string(SortUpdatedAt), string(SortDueOn),
+	string(SortPriority), string(SortCreatedAt), string(SortUpdatedAt), string(SortDueOn),
 	string(SortPlannedOn), string(SortTitle), string(SortEstimateMinutes),
 	string(SortCompletedAt), string(SortStatus),
 }
@@ -74,11 +76,15 @@ type sortPlan struct {
 	// dir is "ASC" or "DESC".
 	dir string
 
+	// idDir is the direction for the unique creation-time tiebreak. It normally
+	// matches dir; priority always uses newest first within a rank.
+	idDir string
+
 	// numeric is true when the key is an integer, so a cursor value has to be
 	// bound as one rather than as text.
 	numeric bool
 
-	// byIDOnly is true for the default sort, where the id is the key and no
+	// byIDOnly is true for a created_at sort, where the id is the key and no
 	// separate expression is needed.
 	byIDOnly bool
 }
@@ -91,7 +97,13 @@ type sortPlan struct {
 // both directions.
 func resolveSort(field, order string) sortPlan {
 	if field == "" {
-		field = string(SortCreatedAt)
+		return sortPlan{
+			signature: "priority:asc,created_at:desc",
+			keyExpr:   priorityKeyExpr(true),
+			dir:       "ASC",
+			idDir:     "DESC",
+			numeric:   true,
+		}
 	}
 
 	if order == "" {
@@ -112,9 +124,14 @@ func resolveSort(field, order string) sortPlan {
 		dir = "ASC"
 	}
 
-	plan := sortPlan{dir: dir, signature: field + ":" + order}
+	plan := sortPlan{dir: dir, idDir: dir, signature: field + ":" + order}
 
 	switch SortField(field) {
+	case SortPriority:
+		plan.keyExpr = priorityKeyExpr(asc)
+		plan.idDir = "DESC"
+		plan.numeric = true
+
 	case SortCreatedAt:
 		// id is a UUIDv7, so it already orders by creation time.
 		plan.byIDOnly = true
@@ -154,6 +171,26 @@ func resolveSort(field, order string) sortPlan {
 	return plan
 }
 
+// priorityKeyExpr maps the vocabulary to an integer rank. The null sentinel is
+// chosen so missing priority stays last in either direction.
+func priorityKeyExpr(asc bool) string {
+	if asc {
+		return `CASE priority
+			WHEN 'urgent' THEN 0
+			WHEN 'high' THEN 1
+			WHEN 'medium' THEN 2
+			WHEN 'low' THEN 3
+			ELSE 4 END`
+	}
+
+	return `CASE priority
+		WHEN 'urgent' THEN 0
+		WHEN 'high' THEN 1
+		WHEN 'medium' THEN 2
+		WHEN 'low' THEN 3
+		ELSE -1 END`
+}
+
 // dateKeyExpr coalesces a nullable date or timestamp so missing values sort last.
 func dateKeyExpr(column string, asc bool) string {
 	if asc {
@@ -169,10 +206,10 @@ func dateKeyExpr(column string, asc bool) string {
 // boundary a single unambiguous position.
 func (p sortPlan) orderBy() string {
 	if p.byIDOnly {
-		return " ORDER BY id " + p.dir
+		return " ORDER BY id " + p.idDir
 	}
 
-	return " ORDER BY " + p.keyExpr + " " + p.dir + ", id " + p.dir
+	return " ORDER BY " + p.keyExpr + " " + p.dir + ", id " + p.idDir
 }
 
 // keysetCursor is the position of the last row on a page.
@@ -257,7 +294,7 @@ func (p sortPlan) applyKeyset(c *conditions, cursor keysetCursor) error {
 	}
 
 	if p.byIDOnly {
-		if p.dir == "ASC" {
+		if p.idDir == "ASC" {
 			c.add("id > ?", cursor.ID)
 		} else {
 			c.add("id < ?", cursor.ID)
@@ -281,13 +318,18 @@ func (p sortPlan) applyKeyset(c *conditions, cursor keysetCursor) error {
 		key = parsed
 	}
 
-	comparison := "<"
+	keyComparison := "<"
 	if p.dir == "ASC" {
-		comparison = ">"
+		keyComparison = ">"
+	}
+
+	idComparison := "<"
+	if p.idDir == "ASC" {
+		idComparison = ">"
 	}
 
 	c.add(
-		"("+p.keyExpr+" "+comparison+" ? OR ("+p.keyExpr+" = ? AND id "+comparison+" ?))",
+		"("+p.keyExpr+" "+keyComparison+" ? OR ("+p.keyExpr+" = ? AND id "+idComparison+" ?))",
 		key, key, cursor.ID,
 	)
 
@@ -318,7 +360,7 @@ func (p sortPlan) nextCursor(id string, key *string) string {
 // describeSort renders the effective sort for logging and for the API to echo.
 func (p sortPlan) describeSort(field string) string {
 	if field == "" {
-		field = string(SortCreatedAt)
+		return "priority asc, created_at desc"
 	}
 
 	return field + " " + strings.ToLower(p.dir)

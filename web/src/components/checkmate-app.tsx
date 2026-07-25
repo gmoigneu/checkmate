@@ -43,7 +43,7 @@ import {
 	formatMinutes,
 	todayString,
 } from "@/lib/format";
-import type { Brief, Context, Person, Task } from "@/lib/types";
+import type { Brief, Context, Person, Task, TaskPriority } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Page =
@@ -66,6 +66,24 @@ const navItems: Array<{
 	{ page: "inbox", label: "Inbox", icon: Inbox, href: "/inbox" },
 	{ page: "tasks", label: "Upcoming", icon: CalendarDays, href: "/tasks" },
 ];
+
+const priorityOptions: Array<{ value: TaskPriority; label: string }> = [
+	{ value: "urgent", label: "Urgent" },
+	{ value: "high", label: "High" },
+	{ value: "medium", label: "Medium" },
+	{ value: "low", label: "Low" },
+];
+
+function PriorityBadge({ priority }: { priority: TaskPriority }) {
+	const label =
+		priorityOptions.find((option) => option.value === priority)?.label ??
+		priority;
+	return (
+		<span className={cn("cm-priority", `cm-priority-${priority}`)}>
+			{label}
+		</span>
+	);
+}
 
 function pageForPath(pathname: string): Page {
 	if (pathname === "/") return "brief";
@@ -859,6 +877,7 @@ function TaskRow({
 				className="cm-task-link"
 			>
 				<span className="cm-task-title">{task.title}</span>
+				{task.priority ? <PriorityBadge priority={task.priority} /> : null}
 				{task.alsoIn?.length ? (
 					<span className="cm-also-in">↳ {task.alsoIn.join(" · ")}</span>
 				) : null}
@@ -930,6 +949,7 @@ function CaptureDialog({
 }) {
 	const queryClient = useQueryClient();
 	const [value, setValue] = useState("");
+	const [priority, setPriority] = useState<TaskPriority | "">("");
 	const parsed = useMemo(
 		() => parseCapture(value, contexts, people),
 		[value, contexts, people],
@@ -945,10 +965,12 @@ function CaptureDialog({
 				estimate_minutes: parsed.estimate_minutes,
 				due_on: parsed.due_on,
 				planned_on: parsed.planned_on,
+				priority: priority || null,
 				capture_method: "form",
 			}),
 		onSuccess: () => {
 			setValue("");
+			setPriority("");
 			onOpenChange(false);
 			queryClient.invalidateQueries({ queryKey: ["brief"] });
 		},
@@ -1009,10 +1031,22 @@ function CaptureDialog({
 							<kbd>30m</kbd> <kbd>tomorrow</kbd> or <kbd>&gt;tomorrow</kbd>
 						</div>
 					)}
-					<div className="flex items-center justify-between px-3 pb-2 pt-1">
-						<Button variant="ghost" size="sm" className="text-muted-foreground">
-							More details
-						</Button>
+					<div className="flex items-center justify-between gap-3 px-3 pb-2 pt-1">
+						<select
+							value={priority}
+							onChange={(event) =>
+								setPriority(event.target.value as TaskPriority | "")
+							}
+							className="h-8 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground"
+							aria-label="Task priority"
+						>
+							<option value="">No priority</option>
+							{priorityOptions.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
 						<Button
 							disabled={!value.trim() || create.isPending}
 							onClick={() => create.mutate()}
@@ -1270,15 +1304,13 @@ function TriageCard({
 function TaskListPage() {
 	const [query, setQuery] = useState("");
 	const [status, setStatus] = useState("");
-	const parameters = new URLSearchParams({
-		limit: "200",
-		sort: "due_on",
-		order: "asc",
-	});
+	const [priority, setPriority] = useState("");
+	const parameters = new URLSearchParams({ limit: "200" });
 	if (query) parameters.set("q", query);
 	if (status) parameters.set("status", status);
+	if (priority) parameters.set("priority", priority);
 	const tasks = useQuery({
-		queryKey: ["tasks", query, status],
+		queryKey: ["tasks", query, status, priority],
 		queryFn: () => api.tasks(parameters),
 	});
 	return (
@@ -1312,10 +1344,23 @@ function TaskListPage() {
 					<option value="done">Done</option>
 					<option value="cancelled">Cancelled</option>
 				</select>
+				<select
+					value={priority}
+					onChange={(event) => setPriority(event.target.value)}
+					className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
+					aria-label="Filter tasks by priority"
+				>
+					<option value="">Any priority</option>
+					{priorityOptions.map((option) => (
+						<option key={option.value} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</select>
 			</div>
 			<p className="mb-3 text-xs text-muted-foreground">
-				{tasks.data?.data.length ?? 0} tasks · sorted by due date · undated
-				tasks last
+				{tasks.data?.data.length ?? 0} tasks · priority first · newest within
+				each priority
 			</p>
 			{tasks.isLoading ? (
 				<LoadingPage />
@@ -1375,8 +1420,6 @@ function ContextPage({
 					context_id: context?.id ?? "",
 					status: "todo,in_progress,blocked,delegated",
 					limit: "200",
-					sort: "due_on",
-					order: "asc",
 				}),
 			),
 		enabled: Boolean(context),
@@ -1491,8 +1534,6 @@ function ProjectPage({
 					project_id: project?.id ?? "",
 					top_level: "true",
 					limit: "200",
-					sort: "due_on",
-					order: "asc",
 				}),
 			),
 		enabled: Boolean(project),
@@ -1607,6 +1648,9 @@ function TaskDetail({
 		onSuccess: (task) => {
 			queryClient.setQueryData(["task", taskId], task);
 			queryClient.invalidateQueries({ queryKey: ["brief"] });
+			queryClient.invalidateQueries({ queryKey: ["tasks"] });
+			queryClient.invalidateQueries({ queryKey: ["context-tasks"] });
+			queryClient.invalidateQueries({ queryKey: ["project-tasks"] });
 			setEditing(false);
 		},
 	});
@@ -1698,6 +1742,24 @@ function TaskDetail({
 									<option value="delegated">Waiting on</option>
 									<option value="done">Done</option>
 									<option value="cancelled">Cancelled</option>
+								</select>
+							</Field>
+							<Field label="Priority">
+								<select
+									value={task.priority ?? ""}
+									onChange={(event) =>
+										update.mutate({
+											priority: event.target.value || null,
+										})
+									}
+									className="bg-transparent text-sm outline-none"
+								>
+									<option value="">No priority</option>
+									{priorityOptions.map((option) => (
+										<option key={option.value} value={option.value}>
+											{option.label}
+										</option>
+									))}
 								</select>
 							</Field>
 							<Field label="Context">

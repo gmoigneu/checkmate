@@ -128,6 +128,7 @@ type createTaskInput struct {
 	ParentID        string `json:"parent_id,omitempty" jsonschema:"make this a subtask of another task"`
 	DueOn           string `json:"due_on,omitempty" jsonschema:"YYYY-MM-DD deadline"`
 	PlannedOn       string `json:"planned_on,omitempty" jsonschema:"YYYY-MM-DD day to work on it"`
+	Priority        string `json:"priority,omitempty" jsonschema:"urgent, high, medium or low"`
 	EstimateMinutes int64  `json:"estimate_minutes,omitempty" jsonschema:"how long it should take, in minutes"`
 	DelegateTo      string `json:"delegate_to,omitempty" jsonschema:"a person's name to delegate this to immediately"`
 	Source          string `json:"source,omitempty" jsonschema:"where it came from: self, email, slack, google_chat, meeting or phone"`
@@ -166,6 +167,11 @@ func (h *Handler) createTask(
 			in.Source, strings.Join(sourceKeys, ", ")), taskResult{}, nil
 	}
 
+	if in.Priority != "" && !containsStr(model.TaskPriorities, in.Priority) {
+		return toolError("priority %q is not valid; use one of: %s",
+			in.Priority, strings.Join(model.TaskPriorities, ", ")), taskResult{}, nil
+	}
+
 	params := store.TaskCreate{
 		Title:          strings.TrimSpace(in.Title),
 		CaptureMethod:  captureMethod,
@@ -175,6 +181,7 @@ func (h *Handler) createTask(
 		ParentID:       optional(in.ParentID),
 		DueOn:          optional(in.DueOn),
 		PlannedOn:      optional(in.PlannedOn),
+		Priority:       optional(in.Priority),
 		Source:         optional(in.Source),
 		ReferenceURL:   optional(in.ReferenceURL),
 		ReferenceLabel: optional(in.ReferenceLabel),
@@ -214,11 +221,13 @@ type updateTaskInput struct {
 	ProjectID       string `json:"project_id,omitempty"`
 	DueOn           string `json:"due_on,omitempty" jsonschema:"YYYY-MM-DD"`
 	PlannedOn       string `json:"planned_on,omitempty" jsonschema:"YYYY-MM-DD"`
+	Priority        string `json:"priority,omitempty" jsonschema:"urgent, high, medium or low"`
 	EstimateMinutes int64  `json:"estimate_minutes,omitempty"`
 	BlockedByID     string `json:"blocked_by_id,omitempty" jsonschema:"the id of the task blocking this one; also sets the status to blocked"`
 
 	ClearDueOn     bool `json:"clear_due_on,omitempty" jsonschema:"remove the due date"`
 	ClearPlannedOn bool `json:"clear_planned_on,omitempty" jsonschema:"remove the planned date"`
+	ClearPriority  bool `json:"clear_priority,omitempty" jsonschema:"remove the priority"`
 	ClearBlocker   bool `json:"clear_blocker,omitempty" jsonschema:"remove the blocker and return the task to todo"`
 }
 
@@ -253,6 +262,11 @@ func (h *Handler) updateTask(
 			in.Status, strings.Join(model.TaskStatuses, ", ")), taskResult{}, nil
 	}
 
+	if in.Priority != "" && !containsStr(model.TaskPriorities, in.Priority) {
+		return toolError("priority %q is not valid; use one of: %s",
+			in.Priority, strings.Join(model.TaskPriorities, ", ")), taskResult{}, nil
+	}
+
 	params := store.TaskUpdate{
 		Title:     setIf(in.Title),
 		Details:   setIf(in.Details),
@@ -266,6 +280,12 @@ func (h *Handler) updateTask(
 	// can reliably fill in.
 	params.DueOn = dateField(in.DueOn, in.ClearDueOn)
 	params.PlannedOn = dateField(in.PlannedOn, in.ClearPlannedOn)
+	switch {
+	case in.ClearPriority:
+		params.Priority = patch.Field[string]{Set: true, Null: true}
+	case in.Priority != "":
+		params.Priority = patch.Field[string]{Set: true, Value: in.Priority}
+	}
 
 	if in.EstimateMinutes > 0 {
 		params.EstimateMinutes = patch.Field[int64]{Set: true, Value: in.EstimateMinutes}

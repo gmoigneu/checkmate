@@ -5,6 +5,60 @@ import (
 	"testing"
 )
 
+func TestTaskPriorityLifecycleAndFilter(t *testing.T) {
+	h := newHarness(t)
+	u := h.user("you@example.com")
+	contextID := h.firstContextID(u)
+
+	urgent := h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
+		"title": "urgent task", "context_id": contextID, "priority": "urgent",
+	}).expect(http.StatusCreated)
+	urgentID := urgent.id()
+
+	if got := urgent.decode()["priority"]; got != "urgent" {
+		t.Errorf("created priority = %v, want urgent", got)
+	}
+
+	updated := h.do(http.MethodPatch, "/v1/tasks/"+urgentID, u.Token,
+		map[string]any{"priority": "medium"}).expect(http.StatusOK).decode()
+	if got := updated["priority"]; got != "medium" {
+		t.Errorf("updated priority = %v, want medium", got)
+	}
+
+	cleared := h.do(http.MethodPatch, "/v1/tasks/"+urgentID, u.Token,
+		map[string]any{"priority": nil}).expect(http.StatusOK).decode()
+	if got := cleared["priority"]; got != nil {
+		t.Errorf("cleared priority = %v, want null", got)
+	}
+
+	h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
+		"title": "high task", "context_id": contextID, "priority": "high",
+	}).expect(http.StatusCreated)
+	h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
+		"title": "low task", "context_id": contextID, "priority": "low",
+	}).expect(http.StatusCreated)
+
+	got := titlesOf(h.do(http.MethodGet, "/v1/tasks?priority=high", u.Token, nil).
+		expect(http.StatusOK).list())
+	if len(got) != 1 || got[0] != "high task" {
+		t.Errorf("priority filter returned %v, want [high task]", got)
+	}
+
+	res := h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
+		"title": "bad task", "context_id": contextID, "priority": "critical",
+	}).expect(http.StatusUnprocessableEntity)
+	if res.fields()["priority"] == "" {
+		t.Errorf("invalid priority errors = %v, want priority", res.fields())
+	}
+
+	res = h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
+		"title": "empty priority", "context_id": contextID, "priority": "",
+	}).expect(http.StatusUnprocessableEntity)
+	if res.fields()["priority"] == "" {
+		t.Errorf("empty priority errors = %v, want priority", res.fields())
+	}
+}
+
 // ---------------------------------------------------------------------------
 // PATCH semantics
 // ---------------------------------------------------------------------------

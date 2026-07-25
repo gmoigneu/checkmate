@@ -57,6 +57,7 @@ type taskView struct {
 	ID              string `json:"id" jsonschema:"the task's id, used to update or complete it"`
 	Title           string `json:"title"`
 	Status          string `json:"status" jsonschema:"one of inbox, todo, in_progress, blocked, delegated, done, cancelled"`
+	Priority        string `json:"priority,omitempty" jsonschema:"urgent, high, medium or low"`
 	Kind            string `json:"kind" jsonschema:"short, long, recurring, delegated or blocked"`
 	Details         string `json:"details,omitempty"`
 	ContextID       string `json:"context_id,omitempty"`
@@ -137,6 +138,7 @@ func toView(task model.Task, l lookups) taskView {
 	}
 
 	v.Details = deref(task.Details)
+	v.Priority = deref(task.Priority)
 	v.ContextID = deref(task.ContextID)
 	v.ProjectID = deref(task.ProjectID)
 	v.DueOn = deref(task.DueOn)
@@ -313,7 +315,7 @@ func (h *Handler) addReadTools(server *mcp.Server) {
 		Name:  "list_tasks",
 		Title: "List tasks",
 		Description: "Search and filter the user's tasks. Every filter is optional; " +
-			"with none, returns the most recently created open tasks. Use context_id " +
+			"with none, returns open tasks by priority, newest first within a priority. Use context_id " +
 			"from list_contexts to narrow by area, inbox_only for untriaged captures, " +
 			"and query to search titles and details.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
@@ -391,6 +393,7 @@ func briefSummary(b briefOutput) string {
 type listTasksInput struct {
 	Status        []string `json:"status,omitempty" jsonschema:"filter by status: inbox, todo, in_progress, blocked, delegated, done, cancelled"`
 	Kind          []string `json:"kind,omitempty" jsonschema:"filter by kind: short, long, recurring, delegated, blocked"`
+	Priority      []string `json:"priority,omitempty" jsonschema:"filter by priority: urgent, high, medium, low"`
 	ContextID     string   `json:"context_id,omitempty" jsonschema:"only tasks in this context"`
 	ProjectID     string   `json:"project_id,omitempty" jsonschema:"only tasks in this project"`
 	InboxOnly     bool     `json:"inbox_only,omitempty" jsonschema:"only tasks still awaiting triage, meaning status inbox"`
@@ -451,6 +454,13 @@ func (h *Handler) listTasks(
 		}
 	}
 
+	for _, priority := range in.Priority {
+		if !containsStr(model.TaskPriorities, priority) {
+			return toolError("priority %q is not valid; use one of: %s",
+				priority, strings.Join(model.TaskPriorities, ", ")), listTasksOutput{}, nil
+		}
+	}
+
 	limit := in.Limit
 	if limit <= 0 {
 		limit = 50
@@ -458,6 +468,7 @@ func (h *Handler) listTasks(
 
 	filter := store.TaskFilter{
 		Kind:          in.Kind,
+		Priority:      in.Priority,
 		ContextID:     in.ContextID,
 		ProjectID:     in.ProjectID,
 		DelegatedToID: in.DelegatedToID,

@@ -76,7 +76,7 @@ Source (fixed lookup of 6)
 **Project** — `id, context_id (required), name, description?, status, …`
 **Person** — `id, name, email?, context_id?, notes?, …`
 **Recurrence** — `id, context_id (required), project_id?, source?, title, details?, rrule, timezone, estimate_minutes?, delegated_to_id?, lead_days, starts_on, ends_on?, next_occurrence_on?, last_spawned_on?, active, …`
-**Task** — `id, context_id?, project_id?, parent_id?, recurrence_id?, occurrence_on?, source?, capture_method, title, details?, status, due_on?, planned_on?, estimate_minutes?, delegated_to_id?, blocked_by_id?, reference_url?, reference_label?, kind (derived), completed_at?, cancelled_at?, …`
+**Task** — `id, context_id?, project_id?, parent_id?, recurrence_id?, occurrence_on?, source?, capture_method, title, details?, status, priority?, due_on?, planned_on?, estimate_minutes?, delegated_to_id?, blocked_by_id?, reference_url?, reference_label?, kind (derived), completed_at?, cancelled_at?, …`
 
 `?` = nullable. Every entity also carries `deleted_at?` (tombstone) and `rev` (sync counter).
 
@@ -95,6 +95,10 @@ These are enforced by database CHECK constraints. **Do not invent a value, a sta
 | `delegated` | Waiting on *{name}* | **Requires `delegated_to_id`.** Enforced both ways: you cannot set this status without a person, and you cannot clear the person while the status holds. |
 | `done` | Done | `completed_at` set by the server. |
 | `cancelled` | Cancelled | `cancelled_at` set by the server. Not the same as deleted. |
+
+**Task priority** (optional): `urgent` · `high` · `medium` · `low`. It is an
+importance rank, separate from status, deadline, and planned date. Null means the
+task has not been prioritized.
 
 **Task kind** — derived by the server, never writable, never stored. Precedence is strict top-to-bottom; a recurring task that is also delegated reads as `recurring`:
 
@@ -180,15 +184,17 @@ Returns eight lists plus totals:
 
 ### 3.5 Task filters — `GET /v1/tasks`
 
-`status` · `kind` (both repeatable or comma-separated) · `context_id` · `project_id` · `parent_id` · `delegated_to_id` · `recurrence_id` · `planned_on` · `planned_before` · `planned_after` · `due_on` · `due_before` · `due_after` · `q` (searches title + details) · `top_level` · `include_deleted` · `limit` (default 50, **max 200**) · `cursor`
+`status` · `kind` · `priority` (all repeatable or comma-separated) · `context_id` · `project_id` · `parent_id` · `delegated_to_id` · `recurrence_id` · `planned_on` · `planned_before` · `planned_after` · `due_on` · `due_before` · `due_after` · `q` (searches title + details) · `top_level` · `include_deleted` · `limit` (default 50, **max 200**) · `cursor`
 
 `?context_id=null` **is the inbox**. `?project_id=null` and `?parent_id=null` work the same way. `?parent_id=null` and `?top_level=true` are the same question.
 
 > **RESOLVED 2026-07-25 — `sort` and `order` now exist.** This section previously
 > recorded a hard constraint; it no longer applies.
 >
-> `sort` accepts `created_at` (default), `updated_at`, `due_on`, `planned_on`,
-> `title`, `estimate_minutes`, `completed_at`, `status`; `order` is `asc`/`desc`.
+> With no explicit sort, tasks are ordered `urgent`, `high`, `medium`, `low`,
+> unprioritized, then newest first inside each rank. `sort` accepts `priority`,
+> `created_at`, `updated_at`, `due_on`, `planned_on`, `title`,
+> `estimate_minutes`, `completed_at`, `status`; `order` is `asc`/`desc`.
 > Direction defaults to `desc` for `created_at` and `asc` for everything else.
 > **Rows with no value for the sort column always sort last, in both directions.**
 >
@@ -236,7 +242,7 @@ This matters for design: **"clear this field" and "leave this field alone" must 
 
 There is no server support for any of the following. If a screen needs one, it must be flagged rather than drawn:
 
-- **Priority / importance / flags** — no field exists.
+- **Flags or stars separate from priority** — no additional field exists.
 - **Tags or labels** — none. Contexts, projects and sources are the only classification axes.
 - **A "Someday" / backlog status** — the 7 statuses in §3.2 are exhaustive. There is nowhere to park something with no date and no intent beyond `todo`.
 - **Attachments, images, files** — none. `reference_url` + `reference_label` is the only external pointer.
@@ -361,7 +367,7 @@ Deliver as a JSON/YAML token file plus a rendered reference sheet. Semantic name
 Every component needs: anatomy diagram, all variants, all interaction states (`rest, hover, focus-visible, active, selected, disabled, loading, error, read-only`), light + dark, and its own redlines.
 
 **Core**
-1. **Task row** — *the most important component in the app.* Variants: brief-bucket, list, subtask, search result, widget-compact, triage-card. Anatomy must accommodate, and gracefully drop in this priority order: completion control, title (1–2 line clamp), context dot+name, project name, due date, planned date, estimate, kind badge, delegate name, blocker, source, subtask progress, reference link icon, recurring glyph, selection state, drag affordance. **Specify exactly which elements drop at each density and width, and in what order.**
+1. **Task row** — *the most important component in the app.* Variants: brief-bucket, list, subtask, search result, widget-compact, triage-card. Anatomy must accommodate, and gracefully drop in this display order: completion control, title (1–2 line clamp), priority badge, context dot+name, project name, due date, planned date, estimate, kind badge, delegate name, blocker, source, subtask progress, reference link icon, recurring glyph, selection state, drag affordance. **Specify exactly which elements drop at each density and width, and in what order.**
 2. **Completion control** — checkbox/circle. States: open, hover, pressed, completing (the animation), done, cancelled, disabled, read-only. Must also expose "cancel" as distinct from "complete" — cancelled is not done.
 3. **Status control** — the 7-value picker. `delegated` must chain into person selection.
 4. **Context chip / dot** — dot-only, dot+label, filter-pill, and picker-row forms.
@@ -656,10 +662,11 @@ A filter bar that exposes the real API filters and nothing else — status (mult
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**The ordering problem (§3.5) lands here.** The API returns newest-created-first with no sort parameter. Requirements:
-- Default ordering is **newest first**, honestly labelled, because that is what the server gives.
-- Any other sort is client-side over the loaded pages, and **must be labelled as such** ("sorted by due date within the 200 loaded tasks"). Design that disclosure — a warning icon with a tooltip is acceptable; silently mis-ordering is not.
-- Design the version that assumes a server `sort` parameter too, and mark it "requires §14.1".
+**Ordering** follows §3.5:
+- Default ordering is **priority first**, honestly labelled: urgent, high, medium,
+  low, then unprioritized, newest first within each rank.
+- Other supported sorts are server-side and keyset-paginated. Changing sort starts
+  a fresh walk because cursors are bound to their ordering.
 
 **Interactions** — filters are URL state (shareable, back-button-correct); grouping by context / project / status / due-date is client-side; multi-select and bulk actions with partial-failure reporting; `include_deleted` reveals tombstoned rows in a distinctly dead treatment (they cannot be restored — there is no undelete endpoint; say so).
 
@@ -709,6 +716,9 @@ A filter bar that exposes the real API filters and nothing else — status (mult
 **Field-by-field requirements**
 - **Title** — inline-editable, multi-line, blank not allowed (the DB enforces non-empty after trim).
 - **Status** — the 7-value picker. Selecting `delegated` chains to the person picker and cannot be committed without one. Selecting `done`/`cancelled` shows the resulting timestamp read-only.
+- **Priority** — optional 4-value picker (`urgent`, `high`, `medium`, `low`) with
+  an explicit "No priority" clear action. Show a compact, text-labelled badge in
+  rows; do not communicate the rank by colour alone.
 - **Blocked by** — searchable task picker, **excluding this task's own blocker chain and subtree** (cycles are rejected at any depth). Optional even when status is `blocked`.
 - **Context** — changing it **invalidates the project** (§3.7). One action, two consequences, stated in the confirm: "Move to Personal? This task will leave the project *Q3 launch*."
 - **Project** — filtered to the current context's projects. Disabled with an explanation when no context is set.

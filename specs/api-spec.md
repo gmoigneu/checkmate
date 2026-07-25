@@ -46,8 +46,8 @@ Three surfaces over the same data and the same ownership rules:
 ## 2. Conventions
 
 **Ids** are UUIDv7 as text. Because v7 begins with a millisecond timestamp, `id`
-ordering *is* creation ordering — which is why the default listing needs no sort
-column, and why a client may safely mint an id locally if it ever needs to.
+ordering *is* creation ordering. Task priority uses it as the newest-first
+tiebreak; a client may also safely mint an id locally if it ever needs to.
 
 **Timestamps** are RFC3339 UTC text with milliseconds: `2026-07-25T14:03:11.482Z`.
 **Calendar dates** are plain `YYYY-MM-DD` with no zone and no time. They are
@@ -55,6 +55,9 @@ validated as real dates, so `2026-02-31` is rejected rather than merely
 shape-checked.
 
 **Estimates** are whole minutes, greater than zero.
+
+**Priority** is optional and independent from status or dates: `urgent`, `high`,
+`medium`, `low`, or `null` when the user has not assigned one.
 
 **Collections** return `{"data": [...], "next_cursor": "…"|null}`. **Single
 resources** return the bare object. `DELETE` returns 204.
@@ -99,6 +102,19 @@ as `recurring`:
 
 Derived by a SQL view rather than stored, so it cannot go stale: adding a subtask
 flips a task from `short` to `long` with no second write.
+
+### Task priority — optional importance
+
+| Value | Meaning |
+| --- | --- |
+| `urgent` | Needs immediate attention |
+| `high` | Important work |
+| `medium` | Normal prioritized work |
+| `low` | Can wait |
+
+Priority says how important a task is; `due_on` says when the outside world expects
+it, and `planned_on` says when the user intends to work on it. These axes must not
+be inferred from one another. Null means unprioritized.
 
 ### Source vs capture method — two independent axes
 
@@ -240,7 +256,9 @@ the editor.
 
 | `sort` | Default direction | Notes |
 | --- | --- | --- |
-| `created_at` (default) | `desc` | Served by the primary key |
+| omitted | — | Priority `urgent` → `high` → `medium` → `low` → null, then newest first |
+| `priority` | `asc` | Urgent first; ties are newest first |
+| `created_at` | `desc` | Served by the primary key |
 | `due_on`, `planned_on`, `completed_at` | `asc` | |
 | `title` | `asc` | Case-insensitive, so `Apple` sorts with `apple` |
 | `estimate_minutes` | `asc` | |
@@ -603,7 +621,6 @@ Properties the UI must reflect:
 
 No server support. A design needing one of these must be flagged, not drawn.
 
-- **Priority, importance, flags** — no field.
 - **Tags or labels** — contexts, projects and sources are the only classification.
 - **A "someday" status** — the seven are exhaustive.
 - **Attachments** — `reference_url` + `reference_label` is the only external pointer.
