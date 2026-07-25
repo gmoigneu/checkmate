@@ -1,0 +1,81 @@
+
+
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  --font-sans: "SF Pro Text", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+}
+
+:root {
+  --page: #f8f6f1;
+  --sidebar: #263130;
+  --sidebar-text: #f7f5f0;
+  --ink: #253130;
+  --coral: #c65f40;
+  --coral-deep: #a94e34;
+  --sand: #f1e6d7;
+  --sage: #63866f;
+  --sage-bg: #edf4ed;
+  --overdue: #ad513e;
+  --overdue-bg: #fff0eb;
+  --background: #f8f6f1;
+  --foreground: #253130;
+  --card: #fffefa;
+  --card-foreground: #253130;
+  --popover: #fffefa;
+  --popover-foreground: #253130;
+  --primary: #253130;
+  --primary-foreground: #fffefa;
+  --secondary: #f1ede6;
+  --secondary-foreground: #253130;
+  --muted: #f0eee9;
+  --muted-foreground: #6d726e;
+  --accent: #f1e6d7;
+  --accent-foreground: #253130;
+  --destructive: #ad513e;
+  --border: #e4e0d8;
+  --input: #e4e0d8;
+  --ring: #c65f40;
+  --radius: 0.8rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #202827;
+    --sidebar: #161d1c;
+    --sidebar-text: #eef1eb;
+    --ink: #edf0e9;
+    --coral: #df7959;
+    --coral-deep: #ef8b68;
+    --sand: #3b332e;
+    --sage: #8eb59b;
+    --sage-bg: #283930;
+    --overdue: #f09275;
+    --overdue-bg: #422923;
+    --background: #202827;
+    --foreground: #edf0e9;
+    --card: #283130;
+    --card-foreground: #edf0e9;
+    --popover: #2d3634;
+    --popover-foreground: #edf0e9;
+    --primary: #edf0e9;
+    --primary-foreground: #202827;
+    --secondary: #34403d;
+    --secondary-foreground: #edf0e9;
+    --muted: #303a38;
+    --muted-foreground: #aab1aa;
+    --accent: #3b332e;
+    --accent-foreground: #edf0e9;
+    --border: #3a4542;
+    --input: #3a4542;
+    --ring: #df7959;
+  }
+}
+
+* { border-color: var(--border); }
+html { color-scheme: light dark; }
+body { margin: 0; min-width: 320px; background: var(--page); font-family: var(--font-sans); }
+button, input, textarea, select { font: inherit; }
+kbd { border: 1px solid color-mix(in srgb, currentColor 12%, transparent); font-family: ui-monospace, SFMono-Regular, monospace; }

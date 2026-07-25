@@ -28,6 +28,7 @@ import (
 	"github.com/nls/checkmate/server/internal/oauth"
 	"github.com/nls/checkmate/server/internal/recurrence"
 	"github.com/nls/checkmate/server/internal/store"
+	"github.com/nls/checkmate/server/internal/web"
 )
 
 // version is overridden at build time:
@@ -215,7 +216,7 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(st, loginSvc, oauthSvc, spawner, mcpHandler, cfg, log, version).Handler(),
+		Handler:           web.WithUI(httpapi.New(st, loginSvc, oauthSvc, spawner, mcpHandler, cfg, log, version).Handler()),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
