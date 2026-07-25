@@ -2,38 +2,88 @@
 //
 // Routing is stdlib net/http: Go's ServeMux handles method+pattern matching and
 // path values, which is all this API needs.
+//
+// Every /v1 route runs behind requireAuth, which is the only place an identity
+// enters a request. Handlers pass that user id to the store, which scopes all of
+// its SQL by it, so ownership is enforced structurally rather than remembered
+// per handler.
 package httpapi
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"time"
+
+	"github.com/nls/checkmate/server/internal/store"
 )
 
 // Server holds the dependencies shared by every handler.
 type Server struct {
-	db      *sql.DB
+	store   *store.Store
 	log     *slog.Logger
 	version string
 }
 
 // New builds a Server. version is reported by the health endpoint.
-func New(db *sql.DB, log *slog.Logger, version string) *Server {
-	return &Server{db: db, log: log, version: version}
+func New(st *store.Store, log *slog.Logger, version string) *Server {
+	return &Server{store: st, log: log, version: version}
 }
 
 // Handler returns the fully wired root handler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
+	// Unauthenticated: a health probe should not need a credential.
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 
-	// Resource routes land here as they are built: /v1/tasks, /v1/contexts,
-	// /v1/projects, /v1/people, /v1/recurrences, /v1/sync.
+	api := http.NewServeMux()
+
+	api.HandleFunc("GET /v1/sources", s.handleListSources)
+
+	for _, res := range []struct {
+		path   string
+		list   http.HandlerFunc
+		create http.HandlerFunc
+		get    http.HandlerFunc
+		update http.HandlerFunc
+		remove http.HandlerFunc
+	}{
+		{
+			"contexts",
+			s.handleListContexts, s.handleCreateContext,
+			s.handleGetContext, s.handleUpdateContext, s.handleDeleteContext,
+		},
+		{
+			"projects",
+			s.handleListProjects, s.handleCreateProject,
+			s.handleGetProject, s.handleUpdateProject, s.handleDeleteProject,
+		},
+		{
+			"people",
+			s.handleListPeople, s.handleCreatePerson,
+			s.handleGetPerson, s.handleUpdatePerson, s.handleDeletePerson,
+		},
+		{
+			"recurrences",
+			s.handleListRecurrences, s.handleCreateRecurrence,
+			s.handleGetRecurrence, s.handleUpdateRecurrence, s.handleDeleteRecurrence,
+		},
+		{
+			"tasks",
+			s.handleListTasks, s.handleCreateTask,
+			s.handleGetTask, s.handleUpdateTask, s.handleDeleteTask,
+		},
+	} {
+		api.HandleFunc("GET /v1/"+res.path, res.list)
+		api.HandleFunc("POST /v1/"+res.path, res.create)
+		api.HandleFunc("GET /v1/"+res.path+"/{id}", res.get)
+		api.HandleFunc("PATCH /v1/"+res.path+"/{id}", res.update)
+		api.HandleFunc("DELETE /v1/"+res.path+"/{id}", res.remove)
+	}
+
+	mux.Handle("/v1/", s.requireAuth(api))
 
 	return s.recoverer(s.requestLogger(mux))
 }
@@ -51,7 +101,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	if err := s.db.PingContext(ctx); err != nil {
+	if err := s.store.DB().PingContext(ctx); err != nil {
 		res.Status = "degraded"
 		res.Database = "unreachable"
 		status = http.StatusServiceUnavailable
@@ -59,20 +109,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		s.log.Error("health check: database unreachable", slog.Any("error", err))
 	}
 
-	writeJSON(w, status, res)
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-
-	if body == nil {
-		return
-	}
-
-	// The response is already committed by WriteHeader, so a failure here can
-	// only be logged by the caller's middleware, not corrected.
-	_ = json.NewEncoder(w).Encode(body)
+	s.writeJSON(w, r, status, res)
 }
 
 // statusRecorder captures the status code so the logger can report it.
@@ -103,19 +140,33 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w}
 
-		next.ServeHTTP(rec, r)
+		// requireAuth runs deeper in the chain and derives its own context, so
+		// the identity it resolves is invisible from out here. This holder is
+		// created before the descent and filled in on the way down, which is
+		// what lets a request be logged with the user it turned out to belong to.
+		holder := &callerHolder{}
+
+		next.ServeHTTP(rec, r.WithContext(withCallerHolder(r.Context(), holder)))
 
 		if rec.status == 0 {
 			rec.status = http.StatusOK
 		}
 
-		s.log.Info("request",
+		attrs := []any{
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.Int("status", rec.status),
 			slog.Int("bytes", rec.bytes),
 			slog.Duration("duration", time.Since(start)),
-		)
+		}
+
+		// Attribute the request to a user when one was resolved, never to a
+		// token value.
+		if holder.userID != "" {
+			attrs = append(attrs, slog.String("user_id", holder.userID))
+		}
+
+		s.log.Info("request", attrs...)
 	})
 }
 
@@ -130,9 +181,7 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 					slog.String("stack", string(debug.Stack())),
 				)
 
-				writeJSON(w, http.StatusInternalServerError, map[string]string{
-					"error": "internal server error",
-				})
+				s.writeError(w, r, http.StatusInternalServerError, "internal server error")
 			}
 		}()
 

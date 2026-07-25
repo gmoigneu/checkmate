@@ -23,6 +23,10 @@ import (
 // recognise in logs and secret scanners.
 const TokenPrefix = "cm_"
 
+// DefaultScopes is what a token gets when none are requested: full access for
+// the owner's own data. Read covers GET, write covers every mutation.
+const DefaultScopes = "read write"
+
 // DefaultContexts are the buckets tasks arrive into (brief section A). Created
 // with every new user; rename or delete them freely afterwards.
 var DefaultContexts = []struct {
@@ -121,7 +125,7 @@ func CreateToken(ctx context.Context, db *sql.DB, userID, name, scopes string) (
 	}
 
 	if strings.TrimSpace(scopes) == "" {
-		scopes = "tasks:read tasks:write"
+		scopes = DefaultScopes
 	}
 
 	var known int

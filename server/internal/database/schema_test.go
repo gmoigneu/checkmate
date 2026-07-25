@@ -84,8 +84,15 @@ func TestMigrationsApply(t *testing.T) {
 		t.Fatalf("version: %v", err)
 	}
 
-	if version != 1 {
-		t.Errorf("schema version = %d, want 1", version)
+	// Compared against the embedded migrations rather than a hardcoded number,
+	// so adding a migration does not need this test edited.
+	latest, err := database.LatestVersion()
+	if err != nil {
+		t.Fatalf("latest version: %v", err)
+	}
+
+	if version != latest {
+		t.Errorf("schema version = %d, want %d (every migration applied)", version, latest)
 	}
 
 	want := []string{
@@ -392,8 +399,21 @@ func TestMigrateDownThenUp(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
 
-	if err := database.MigrateDown(ctx, db, nil); err != nil {
-		t.Fatalf("migrate down: %v", err)
+	// Unwind every migration, not just the most recent, so each down step is
+	// exercised and the schema returns to empty.
+	for {
+		version, err := database.Version(ctx, db)
+		if err != nil {
+			t.Fatalf("version: %v", err)
+		}
+
+		if version == 0 {
+			break
+		}
+
+		if err := database.MigrateDown(ctx, db, nil); err != nil {
+			t.Fatalf("migrate down from version %d: %v", version, err)
+		}
 	}
 
 	var tables int

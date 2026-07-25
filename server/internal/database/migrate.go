@@ -73,6 +73,24 @@ func Version(ctx context.Context, db *sql.DB) (int64, error) {
 	return v, nil
 }
 
+// LatestVersion returns the highest version among the embedded migrations, which
+// is what Version reports once everything has been applied.
+func LatestVersion() (int64, error) {
+	migrations, err := goose.CollectMigrations(migrationsDir, 0, goose.MaxVersion)
+	if err != nil {
+		return 0, fmt.Errorf("database: collect migrations: %w", err)
+	}
+
+	var latest int64
+	for _, m := range migrations {
+		if m.Version > latest {
+			latest = m.Version
+		}
+	}
+
+	return latest, nil
+}
+
 // writerGooseLogger sends goose's output straight to a writer, which is what
 // `migrate status` wants: a table on stdout, not structured log lines.
 type writerGooseLogger struct{ w io.Writer }

@@ -138,8 +138,8 @@ func TestCreateTokenStoresOnlyTheHash(t *testing.T) {
 		t.Error("stored hash does not match HashToken(secret)")
 	}
 
-	if scopes != "tasks:read tasks:write" {
-		t.Errorf("scopes = %q, want the default pair", scopes)
+	if scopes != account.DefaultScopes {
+		t.Errorf("scopes = %q, want %q", scopes, account.DefaultScopes)
 	}
 
 	// Two tokens for the same device name must not collide.
