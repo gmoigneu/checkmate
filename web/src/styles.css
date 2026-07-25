@@ -429,6 +429,10 @@ kbd {
   border-radius: 50%;
 }
 
+.cm-context-title {
+  color: var(--paper-000);
+}
+
 .cm-project-link {
   display: flex;
   height: 30px;
