@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -56,6 +57,18 @@ func (s *Server) handleListRecurrences(w http.ResponseWriter, r *http.Request) {
 		State:     p.enum("state", model.RecurrenceStates),
 	}
 	f.IncludeDeleted, f.Limit, f.Cursor = p.listOptions()
+
+	// active and state describe the same thing at different resolutions, and the
+	// store applies both, so together they can contradict: ?active=true&state=finished
+	// asks for a series that is running and over at once and would answer with an
+	// empty 200. That leaves the caller debugging their own query, so say what is
+	// wrong instead. Redundant-but-consistent pairs (active=false&state=paused) are
+	// fine, because a UI may well set one from a toggle and the other from a filter.
+	if f.Active != nil && f.State != "" && *f.Active != (f.State == model.RecurrenceActive) {
+		p.errors.add("state", fmt.Sprintf(
+			"contradicts active=%t, because state=%s means active=%t",
+			*f.Active, f.State, f.State == model.RecurrenceActive))
+	}
 
 	if err := p.done(); err != nil {
 		s.writeStoreError(w, r, err)

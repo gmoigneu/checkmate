@@ -334,7 +334,13 @@ paths:
           schema: { type: string }
         - name: top_level
           in: query
-          description: Exclude subtasks. Equivalent to `parent_id=null`.
+          description: |
+            Exclude subtasks. Equivalent to `parent_id=null`.
+
+            Combining it with a `parent_id` that names a real task is contradictory
+            and is a **422**: one asks to look under a parent, the other to exclude
+            anything with a parent. `parent_id=null&top_level=true` is the same
+            question twice and is accepted.
           schema: { type: boolean }
         - name: delegated_to_id
           in: query
@@ -882,7 +888,13 @@ paths:
           in: query
           description: |
             The raw flag. False covers both paused and finished; use `state` to
-            distinguish them.
+            distinguish them. Kept because `active=false` is the one thing `state`
+            cannot express in a single value.
+
+            Both may be given, and both are applied. A contradictory pair such as
+            `active=true&state=finished` is a **422** naming `state`, rather than an
+            empty 200 that would leave you debugging a query that was never
+            satisfiable. Redundant-but-consistent pairs are accepted.
           schema: { type: boolean }
       responses:
         "200":

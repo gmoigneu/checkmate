@@ -586,6 +586,11 @@ Properties the UI must reflect:
   request, and a spent rule is retired again immediately. Present `finished` as over,
   not as paused.
 
+  `?state=` and `?active=` may both be given and both are applied, so a
+  contradictory pair (`active=true&state=finished`) is a 422 naming `state` rather
+  than a silently empty 200. `active=false` is kept because it is the one thing
+  `state` cannot say in a single value: "not running, either way".
+
   Series inactive before this existed have a null `completed_at` and therefore read
   as `paused` — the more forgiving reading, since it offers to resume rather than
   declaring something over that may not be.

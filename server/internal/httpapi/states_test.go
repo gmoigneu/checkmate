@@ -376,3 +376,93 @@ func TestMCPRecurrenceStateVisible(t *testing.T) {
 		t.Errorf("state = %v, want finished", entry["state"])
 	}
 }
+
+// TestRecurrenceActiveAndStateCannotContradict covers the review finding: the two
+// filters overlap and the store applies both, so `?active=true&state=finished`
+// used to produce `active = 1 AND active = 0` and answer with an empty 200 —
+// leaving the caller to debug a query that was never satisfiable.
+func TestRecurrenceActiveAndStateCannotContradict(t *testing.T) {
+	h := newHarness(t)
+	u := h.user("you@example.com")
+	contextID := h.firstContextID(u)
+
+	today := time.Now().UTC().Format("2006-01-02")
+
+	h.do(http.MethodPost, "/v1/recurrences", u.Token, map[string]any{
+		"context_id": contextID, "title": "live", "rrule": "FREQ=DAILY",
+		"starts_on": today, "timezone": "UTC",
+	}).expect(http.StatusCreated)
+
+	for _, query := range []string{
+		"?active=true&state=finished",
+		"?active=true&state=paused",
+		"?active=false&state=active",
+	} {
+		t.Run(query, func(t *testing.T) {
+			res := h.do(http.MethodGet, "/v1/recurrences"+query, u.Token, nil)
+			res.expect(http.StatusUnprocessableEntity)
+
+			if res.fields()["state"] == "" {
+				t.Errorf("error names %v, want an entry for state", res.fields())
+			}
+		})
+	}
+
+	// Redundant but consistent combinations still work: a UI may set one from a
+	// toggle and the other from a dropdown without meaning anything contradictory.
+	for _, query := range []string{
+		"?active=true&state=active",
+		"?active=false&state=paused",
+		"?active=false&state=finished",
+	} {
+		t.Run("consistent "+query, func(t *testing.T) {
+			h.do(http.MethodGet, "/v1/recurrences"+query, u.Token, nil).
+				expect(http.StatusOK)
+		})
+	}
+
+	// And each on its own is unaffected.
+	if items := h.do(http.MethodGet, "/v1/recurrences?active=true", u.Token, nil).
+		expect(http.StatusOK).list(); len(items) != 1 {
+		t.Errorf("active=true alone returned %d, want 1", len(items))
+	}
+}
+
+// TestTaskParentAndTopLevelCannotContradict is the sibling of the recurrence case
+// the review found: the store resolved `?parent_id=X&top_level=true` by dropping
+// parent_id, so a filter the caller supplied vanished without a word.
+func TestTaskParentAndTopLevelCannotContradict(t *testing.T) {
+	h := newHarness(t)
+	u := h.user("you@example.com")
+	contextID := h.firstContextID(u)
+
+	parent := h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
+		"title": "parent", "context_id": contextID,
+	}).expect(http.StatusCreated).id()
+
+	h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
+		"title": "child", "context_id": contextID, "parent_id": parent,
+	}).expect(http.StatusCreated)
+
+	res := h.do(http.MethodGet, "/v1/tasks?parent_id="+parent+"&top_level=true", u.Token, nil)
+	res.expect(http.StatusUnprocessableEntity)
+
+	if res.fields()["top_level"] == "" {
+		t.Errorf("error names %v, want an entry for top_level", res.fields())
+	}
+
+	// Each alone still works, and ?parent_id=null with top_level is the same
+	// question rather than a contradiction.
+	if items := h.do(http.MethodGet, "/v1/tasks?parent_id="+parent, u.Token, nil).
+		expect(http.StatusOK).list(); len(items) != 1 {
+		t.Errorf("parent_id alone returned %d, want the one child", len(items))
+	}
+
+	if items := h.do(http.MethodGet, "/v1/tasks?top_level=true", u.Token, nil).
+		expect(http.StatusOK).list(); len(items) != 1 {
+		t.Errorf("top_level alone returned %d, want the one parent", len(items))
+	}
+
+	h.do(http.MethodGet, "/v1/tasks?parent_id=null&top_level=true", u.Token, nil).
+		expect(http.StatusOK)
+}
