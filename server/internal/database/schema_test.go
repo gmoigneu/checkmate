@@ -438,6 +438,77 @@ func TestMigrateDownThenUp(t *testing.T) {
 	}
 }
 
+// TestMigrationsPreserveExistingData seeds data at the first schema version and
+// then migrates all the way up, asserting nothing was lost on the way.
+//
+// This exists because of a specific hazard: sqlite cannot ALTER a column's
+// default or nullability, so changing one means rebuilding the table, and with
+// foreign keys enabled DROP TABLE performs an implicit DELETE that fires
+// ON DELETE CASCADE into every child table. PRAGMA foreign_keys is a no-op
+// inside a transaction, so a migration cannot switch that off. A rebuild of a
+// parent table would therefore wipe user data silently, and the migration would
+// still report success.
+func TestMigrationsPreserveExistingData(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	t.Cleanup(func() { db.Close() })
+
+	if err := database.MigrateUpTo(ctx, db, 1, nil); err != nil {
+		t.Fatalf("migrate to version 1: %v", err)
+	}
+
+	uid := newUser(t, db)
+	cid := newContext(t, db, uid, "upsun")
+	tid := newTask(t, db, uid, cid, "must survive every migration")
+
+	if _, err := db.Exec(
+		`INSERT INTO api_tokens (id, user_id, name, token_hash) VALUES (?, ?, 'device', 'deadbeef')`,
+		id.New(), uid,
+	); err != nil {
+		t.Fatalf("insert token: %v", err)
+	}
+
+	if _, err := db.Exec(
+		`INSERT INTO projects (id, user_id, context_id, name) VALUES (?, ?, ?, 'a project')`,
+		id.New(), uid, cid,
+	); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+
+	if err := database.Migrate(ctx, db, nil); err != nil {
+		t.Fatalf("migrate to latest: %v", err)
+	}
+
+	for table, want := range map[string]int{
+		"users": 1, "contexts": 1, "tasks": 1, "projects": 1, "api_tokens": 1,
+	} {
+		var got int
+
+		if err := db.QueryRow(`SELECT count(*) FROM ` + table).Scan(&got); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+
+		if got != want {
+			t.Errorf("%s has %d rows after migrating up, want %d", table, got, want)
+		}
+	}
+
+	// The specific row, not just the count.
+	var title string
+	if err := db.QueryRow(`SELECT title FROM tasks WHERE id = ?`, tid).Scan(&title); err != nil {
+		t.Fatalf("read the seeded task back: %v", err)
+	}
+
+	if title != "must survive every migration" {
+		t.Errorf("task title = %q after migrating", title)
+	}
+}
+
 func TestCascadeOnUserDelete(t *testing.T) {
 	db := newTestDB(t)
 	uid := newUser(t, db)

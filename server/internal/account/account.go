@@ -116,9 +116,20 @@ func CreateUser(ctx context.Context, db *sql.DB, email, name, timezone string) (
 	return u, nil
 }
 
-// CreateToken issues an API token for userID and returns the plaintext secret.
-// Only its hash is stored, so this is the one and only chance to read it.
+// CreateToken issues a non-expiring API token for userID and returns the
+// plaintext secret. Only its hash is stored, so this is the one and only chance
+// to read it.
 func CreateToken(ctx context.Context, db *sql.DB, userID, name, scopes string) (string, error) {
+	return CreateTokenWithExpiry(ctx, db, userID, name, scopes, "")
+}
+
+// CreateTokenWithExpiry is CreateToken with an optional RFC3339 expiry. An empty
+// expiresAt means the token does not expire.
+func CreateTokenWithExpiry(
+	ctx context.Context,
+	db *sql.DB,
+	userID, name, scopes, expiresAt string,
+) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", errors.New("account: token name is required")
@@ -126,6 +137,12 @@ func CreateToken(ctx context.Context, db *sql.DB, userID, name, scopes string) (
 
 	if strings.TrimSpace(scopes) == "" {
 		scopes = DefaultScopes
+	}
+
+	for _, scope := range strings.Fields(scopes) {
+		if scope != "read" && scope != "write" {
+			return "", fmt.Errorf("account: unknown scope %q", scope)
+		}
 	}
 
 	var known int
@@ -144,14 +161,24 @@ func CreateToken(ctx context.Context, db *sql.DB, userID, name, scopes string) (
 	}
 
 	_, err = db.ExecContext(ctx,
-		`INSERT INTO api_tokens (id, user_id, name, token_hash, scopes) VALUES (?, ?, ?, ?, ?)`,
-		id.New(), userID, name, HashToken(secret), strings.TrimSpace(scopes),
+		`INSERT INTO api_tokens (id, user_id, name, token_hash, scopes, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		id.New(), userID, name, HashToken(secret), strings.Join(strings.Fields(scopes), " "),
+		nullIfBlank(expiresAt),
 	)
 	if err != nil {
 		return "", fmt.Errorf("account: insert token: %w", err)
 	}
 
 	return secret, nil
+}
+
+func nullIfBlank(s string) any {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+
+	return s
 }
 
 // FindUserByEmail looks up an account by address.

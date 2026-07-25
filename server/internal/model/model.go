@@ -139,13 +139,23 @@ var ProjectStatuses = []string{"active", "paused", "done", "archived"}
 var TaskKinds = []string{"short", "long", "recurring", "delegated", "blocked"}
 
 // Identity is the authenticated caller behind a request.
+//
+// Exactly one of TokenID and SessionID is set, naming which credential kind was
+// presented. Handlers only ever read UserID and Scopes; the distinction matters
+// to the middleware, which applies CSRF checks to cookie-authenticated
+// mutations but not to bearer-token ones.
 type Identity struct {
-	UserID   string
-	TokenID  string
-	Scopes   []string
-	Email    string
-	Timezone string
+	UserID    string
+	TokenID   string
+	SessionID string
+	Scopes    []string
+	Email     string
+	Name      string
+	Timezone  string
 }
+
+// ViaCookie reports whether the caller authenticated with a session cookie.
+func (i Identity) ViaCookie() bool { return i.SessionID != "" }
 
 // HasScope reports whether the caller was granted scope.
 func (i Identity) HasScope(scope string) bool {

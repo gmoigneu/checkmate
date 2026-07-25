@@ -10,8 +10,10 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/nls/checkmate/server/internal/account"
+	"github.com/nls/checkmate/server/internal/config"
 	"github.com/nls/checkmate/server/internal/database"
 	"github.com/nls/checkmate/server/internal/httpapi"
 	"github.com/nls/checkmate/server/internal/store"
@@ -24,11 +26,16 @@ type testUser struct {
 	Token string
 }
 
+// testBaseURL is the origin the harness pretends to be served from; the CSRF
+// check compares the Origin header against it.
+const testBaseURL = "http://checkmate.test"
+
 // harness is a live server backed by a temporary database.
 type harness struct {
 	t      *testing.T
 	server http.Handler
 	store  *store.Store
+	cfg    config.Config
 }
 
 func newHarness(t *testing.T) *harness {
@@ -49,10 +56,47 @@ func newHarness(t *testing.T) *harness {
 
 	st := store.New(db)
 
-	// Discard logs so a failing test's output is only assertions.
+	// Built directly rather than through config.Load so tests do not depend on
+	// the process environment.
+	cfg := config.Config{
+		Env:                "development",
+		BaseURL:            testBaseURL,
+		SecureCookies:      false,
+		SessionIdleTimeout: time.Hour,
+		SessionMaxLifetime: 24 * time.Hour,
+	}
+
+	// Discard logs so a failing test's output is only assertions. No login
+	// service: the OIDC round trip needs a real provider, so cookie-auth tests
+	// mint sessions through the store instead.
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	return &harness{t: t, server: httpapi.New(st, log, "test").Handler(), store: st}
+	return &harness{
+		t:      t,
+		server: httpapi.New(st, nil, cfg, log, "test").Handler(),
+		store:  st,
+		cfg:    cfg,
+	}
+}
+
+// session opens a browser session for u and returns the cookie value.
+//
+// Created through the store rather than by driving the OIDC flow, which would
+// need a live identity provider. What is under test here is what a session
+// permits once it exists; the flow that mints one is tested in package login.
+func (h *harness) session(u testUser) string {
+	h.t.Helper()
+
+	secret, _, err := h.store.CreateSession(
+		context.Background(), u.ID,
+		h.cfg.SessionIdleTimeout, h.cfg.SessionMaxLifetime,
+		"test-agent", "127.0.0.1",
+	)
+	if err != nil {
+		h.t.Fatalf("create session: %v", err)
+	}
+
+	return secret
 }
 
 // user creates an account with a full-scope token.
@@ -91,6 +135,7 @@ type response struct {
 	t      *testing.T
 	Status int
 	Body   []byte
+	Header http.Header
 }
 
 // do sends a request with a bearer token.
@@ -122,10 +167,75 @@ func (h *harness) do(method, path, token string, body any) response {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
+	return h.send(req)
+}
+
+// doCookie sends a request authenticated by a session cookie, with the
+// same-origin headers a browser would attach.
+func (h *harness) doCookie(method, path, sessionSecret string, body any) response {
+	h.t.Helper()
+
+	req := h.request(method, path, body)
+	req.AddCookie(&http.Cookie{Name: "checkmate_session", Value: sessionSecret})
+	req.Header.Set("Origin", testBaseURL)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+
+	return h.send(req)
+}
+
+// doCookieRaw sends a cookie-authenticated request with caller-controlled
+// origin headers, for exercising the CSRF check.
+func (h *harness) doCookieRaw(
+	method, path, sessionSecret string,
+	body any,
+	headers map[string]string,
+) response {
+	h.t.Helper()
+
+	req := h.request(method, path, body)
+	req.AddCookie(&http.Cookie{Name: "checkmate_session", Value: sessionSecret})
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	return h.send(req)
+}
+
+func (h *harness) request(method, path string, body any) *http.Request {
+	h.t.Helper()
+
+	var reader io.Reader
+
+	if body != nil {
+		switch v := body.(type) {
+		case string:
+			reader = bytes.NewBufferString(v)
+		default:
+			encoded, err := json.Marshal(v)
+			if err != nil {
+				h.t.Fatalf("marshal body: %v", err)
+			}
+
+			reader = bytes.NewReader(encoded)
+		}
+	}
+
+	req := httptest.NewRequest(method, path, reader)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	return req
+}
+
+func (h *harness) send(req *http.Request) response {
+	h.t.Helper()
+
 	rec := httptest.NewRecorder()
 	h.server.ServeHTTP(rec, req)
 
-	return response{t: h.t, Status: rec.Code, Body: rec.Body.Bytes()}
+	return response{t: h.t, Status: rec.Code, Body: rec.Body.Bytes(), Header: rec.Header()}
 }
 
 // expect fails unless the status matches.

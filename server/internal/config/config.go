@@ -2,7 +2,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -25,6 +27,45 @@ type Config struct {
 
 	// ShutdownTimeout bounds how long in-flight requests get to finish.
 	ShutdownTimeout time.Duration
+
+	// BaseURL is the externally reachable origin, e.g. https://checkmate.example.
+	// OIDC redirect URIs are built from it and cookie/CSRF checks compare
+	// against it, so it must match what a browser actually sees.
+	BaseURL string
+
+	// SecureCookies sets the Secure flag on the session cookie. Defaults to true
+	// outside development, where plain-http localhost has to work.
+	SecureCookies bool
+
+	// SessionIdleTimeout expires a session that stops being used.
+	SessionIdleTimeout time.Duration
+
+	// SessionMaxLifetime is the ceiling an active session cannot slide past.
+	SessionMaxLifetime time.Duration
+
+	// AllowedEmails gates account provisioning from a federated login.
+	//
+	// Empty means no new accounts: existing users can sign in, strangers cannot
+	// create anything. That is the safe default for a server on the public
+	// internet, where "sign in with Google" would otherwise let anyone with a
+	// Google account onto it.
+	AllowedEmails []string
+
+	// Google holds the OIDC client credentials. Login is offered only when both
+	// the id and the secret are set.
+	Google OIDCProvider
+}
+
+// OIDCProvider is one federated identity provider's client credentials.
+type OIDCProvider struct {
+	Issuer       string
+	ClientID     string
+	ClientSecret string
+}
+
+// Configured reports whether the provider can be used.
+func (p OIDCProvider) Configured() bool {
+	return p.ClientID != "" && p.ClientSecret != ""
 }
 
 // Load reads configuration from CHECKMATE_* environment variables, falling back
@@ -54,11 +95,129 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: CHECKMATE_ENV must be development or production, got %q", cfg.Env)
 	}
 
+	if cfg.SessionIdleTimeout, err = envDuration("CHECKMATE_SESSION_IDLE_TIMEOUT", 14*24*time.Hour); err != nil {
+		return Config{}, err
+	}
+
+	if cfg.SessionMaxLifetime, err = envDuration("CHECKMATE_SESSION_MAX_LIFETIME", 90*24*time.Hour); err != nil {
+		return Config{}, err
+	}
+
+	if cfg.SessionMaxLifetime < cfg.SessionIdleTimeout {
+		return Config{}, fmt.Errorf(
+			"config: CHECKMATE_SESSION_MAX_LIFETIME (%s) is shorter than CHECKMATE_SESSION_IDLE_TIMEOUT (%s)",
+			cfg.SessionMaxLifetime, cfg.SessionIdleTimeout)
+	}
+
+	cfg.BaseURL = strings.TrimRight(env("CHECKMATE_BASE_URL", defaultBaseURL(cfg.Addr)), "/")
+
+	if err := validateBaseURL(cfg.BaseURL); err != nil {
+		return Config{}, err
+	}
+
+	if cfg.SecureCookies, err = envBool("CHECKMATE_SECURE_COOKIES", !cfg.Development()); err != nil {
+		return Config{}, err
+	}
+
+	// Refusing to serve cookies without Secure over https would be safe but
+	// useless; the reverse -- sending a session cookie unprotected over the
+	// public internet -- is the mistake worth blocking.
+	if !cfg.SecureCookies && strings.HasPrefix(cfg.BaseURL, "https://") {
+		return Config{}, errors.New(
+			"config: CHECKMATE_SECURE_COOKIES=false with an https base URL would send session cookies in the clear")
+	}
+
+	if cfg.Env == "production" && !strings.HasPrefix(cfg.BaseURL, "https://") {
+		return Config{}, fmt.Errorf(
+			"config: CHECKMATE_BASE_URL must be https in production, got %q", cfg.BaseURL)
+	}
+
+	cfg.AllowedEmails = parseList(env("CHECKMATE_ALLOWED_EMAILS", ""))
+
+	cfg.Google = OIDCProvider{
+		Issuer:       env("CHECKMATE_GOOGLE_ISSUER", "https://accounts.google.com"),
+		ClientID:     env("CHECKMATE_GOOGLE_CLIENT_ID", ""),
+		ClientSecret: env("CHECKMATE_GOOGLE_CLIENT_SECRET", ""),
+	}
+
 	return cfg, nil
+}
+
+// EmailAllowed reports whether an address may have an account provisioned for it.
+func (c Config) EmailAllowed(email string) bool {
+	email = strings.ToLower(strings.TrimSpace(email))
+
+	for _, allowed := range c.AllowedEmails {
+		allowed = strings.ToLower(allowed)
+
+		// A leading "@domain.com" entry admits everyone at that domain.
+		if strings.HasPrefix(allowed, "@") {
+			if strings.HasSuffix(email, allowed) {
+				return true
+			}
+
+			continue
+		}
+
+		if allowed == email {
+			return true
+		}
+	}
+
+	return false
+}
+
+// defaultBaseURL guesses a development origin from the listen address.
+func defaultBaseURL(addr string) string {
+	host, port, found := strings.Cut(addr, ":")
+	if !found {
+		return "http://localhost"
+	}
+
+	if host == "" {
+		host = "localhost"
+	}
+
+	return "http://" + host + ":" + port
+}
+
+func validateBaseURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("config: CHECKMATE_BASE_URL is not a URL: %w", err)
+	}
+
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("config: CHECKMATE_BASE_URL must be http or https, got %q", raw)
+	}
+
+	if parsed.Host == "" {
+		return fmt.Errorf("config: CHECKMATE_BASE_URL has no host: %q", raw)
+	}
+
+	return nil
+}
+
+// parseList splits a comma-separated setting into trimmed, non-empty entries.
+func parseList(raw string) []string {
+	var out []string
+
+	for _, part := range strings.Split(raw, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+
+	return out
 }
 
 // Development reports whether the server is running in development mode.
 func (c Config) Development() bool { return c.Env == "development" }
+
+// Timezone is the default IANA zone for a newly provisioned account.
+func (c Config) Timezone() string {
+	return env("CHECKMATE_DEFAULT_TIMEZONE", "UTC")
+}
 
 func env(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && strings.TrimSpace(v) != "" {

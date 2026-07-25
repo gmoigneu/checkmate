@@ -39,6 +39,22 @@ func Migrate(ctx context.Context, db *sql.DB, log *slog.Logger) error {
 	return nil
 }
 
+// MigrateUpTo applies migrations up to and including version, leaving any later
+// ones pending. Used by tests that need to seed data at an older schema.
+func MigrateUpTo(ctx context.Context, db *sql.DB, version int64, log *slog.Logger) error {
+	if log == nil {
+		goose.SetLogger(goose.NopLogger())
+	} else {
+		goose.SetLogger(slogGooseLogger{log})
+	}
+
+	if err := goose.UpToContext(ctx, db, migrationsDir, version); err != nil {
+		return fmt.Errorf("database: migrate up to %d: %w", version, err)
+	}
+
+	return nil
+}
+
 // MigrateDown rolls back the most recent migration.
 func MigrateDown(ctx context.Context, db *sql.DB, log *slog.Logger) error {
 	if log != nil {

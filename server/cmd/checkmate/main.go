@@ -23,6 +23,7 @@ import (
 	"github.com/nls/checkmate/server/internal/config"
 	"github.com/nls/checkmate/server/internal/database"
 	"github.com/nls/checkmate/server/internal/httpapi"
+	"github.com/nls/checkmate/server/internal/login"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
@@ -39,15 +40,26 @@ Usage:
   checkmate migrate down               Roll back the most recent migration
   checkmate migrate status             Show migration state
   checkmate user create -email E -name N [-timezone TZ]
-  checkmate token create -email E -name N [-scopes "tasks:read tasks:write"]
+  checkmate token create -email E -name N [-scopes "read write"]
   checkmate version                    Print the build version
 
 Environment:
-  CHECKMATE_ENV                development | production  (default development)
-  CHECKMATE_ADDR               listen address            (default :8080)
-  CHECKMATE_DB_PATH            sqlite file               (default checkmate.db)
-  CHECKMATE_AUTO_MIGRATE       migrate on boot           (default true)
-  CHECKMATE_SHUTDOWN_TIMEOUT   drain timeout             (default 15s)
+  CHECKMATE_ENV                  development | production  (default development)
+  CHECKMATE_ADDR                 listen address            (default :8080)
+  CHECKMATE_DB_PATH              sqlite file               (default checkmate.db)
+  CHECKMATE_AUTO_MIGRATE         migrate on boot           (default true)
+  CHECKMATE_SHUTDOWN_TIMEOUT     drain timeout             (default 15s)
+  CHECKMATE_BASE_URL             public origin, used for OIDC redirects and
+                                 the CSRF origin check     (default from ADDR)
+  CHECKMATE_SECURE_COOKIES       Secure flag on cookies    (default: not in dev)
+  CHECKMATE_SESSION_IDLE_TIMEOUT sliding session expiry    (default 336h)
+  CHECKMATE_SESSION_MAX_LIFETIME hard session ceiling      (default 2160h)
+  CHECKMATE_ALLOWED_EMAILS       comma-separated addresses or @domains that may
+                                 have an account provisioned by sign-in.
+                                 EMPTY MEANS NO NEW ACCOUNTS.
+  CHECKMATE_GOOGLE_CLIENT_ID     Google OAuth client id
+  CHECKMATE_GOOGLE_CLIENT_SECRET Google OAuth client secret
+  CHECKMATE_DEFAULT_TIMEZONE     zone for new accounts     (default UTC)
 `
 
 func main() {
@@ -112,9 +124,36 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		return err
 	}
 
+	st := store.New(db)
+
+	// Provider discovery hits the issuer's network endpoint, so a typo in the
+	// config fails at boot rather than at somebody's first sign-in attempt.
+	loginSvc, err := login.New(ctx, st, cfg)
+	if err != nil {
+		return err
+	}
+
+	if loginSvc.Enabled() {
+		for _, provider := range loginSvc.Providers() {
+			log.Info("sign-in provider ready",
+				slog.String("provider", provider),
+				slog.String("redirect_uri", login.RedirectURI(cfg.BaseURL, provider)))
+		}
+
+		if len(cfg.AllowedEmails) == 0 {
+			log.Warn("no CHECKMATE_ALLOWED_EMAILS set: existing users can sign in, " +
+				"but no new accounts will be provisioned")
+		}
+	} else {
+		log.Info("no sign-in provider configured; bearer tokens are the only credential")
+	}
+
+	// Sweep dead sessions and abandoned login flows in the background.
+	go purgeLoop(ctx, st, log)
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(store.New(db), log, version).Handler(),
+		Handler:           httpapi.New(st, loginSvc, cfg, log, version).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
@@ -156,6 +195,36 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 
 	return <-errc
+}
+
+// purgeLoop deletes expired sessions and abandoned login flows on a timer.
+//
+// Neither is load-bearing for correctness -- both are filtered by expiry in
+// every query that reads them -- so this is housekeeping, and a failure is
+// logged rather than fatal.
+func purgeLoop(ctx context.Context, st *store.Store, log *slog.Logger) {
+	const interval = time.Hour
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			removed, err := st.PurgeExpired(ctx)
+			if err != nil {
+				log.Warn("purge expired sessions", slog.Any("error", err))
+
+				continue
+			}
+
+			if removed > 0 {
+				log.Info("purged expired rows", slog.Int64("rows", removed))
+			}
+		}
+	}
 }
 
 func migrateCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []string) error {

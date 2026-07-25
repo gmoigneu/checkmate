@@ -143,7 +143,7 @@ func TestCreateTokenStoresOnlyTheHash(t *testing.T) {
 	}
 
 	// Two tokens for the same device name must not collide.
-	other, err := account.CreateToken(ctx, db, u.ID, "iOS", "tasks:read")
+	other, err := account.CreateToken(ctx, db, u.ID, "iOS", "read")
 	if err != nil {
 		t.Fatalf("second token: %v", err)
 	}

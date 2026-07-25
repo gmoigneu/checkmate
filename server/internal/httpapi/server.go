@@ -16,31 +16,53 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/nls/checkmate/server/internal/config"
+	"github.com/nls/checkmate/server/internal/login"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
 // Server holds the dependencies shared by every handler.
 type Server struct {
 	store   *store.Store
+	login   *login.Service
+	cfg     config.Config
 	log     *slog.Logger
 	version string
 }
 
-// New builds a Server. version is reported by the health endpoint.
-func New(st *store.Store, log *slog.Logger, version string) *Server {
-	return &Server{store: st, log: log, version: version}
+// New builds a Server. loginSvc may be nil when no identity provider is
+// configured, in which case the sign-in routes report 501 and bearer tokens
+// remain the only way in.
+func New(
+	st *store.Store,
+	loginSvc *login.Service,
+	cfg config.Config,
+	log *slog.Logger,
+	version string,
+) *Server {
+	return &Server{store: st, login: loginSvc, cfg: cfg, log: log, version: version}
 }
 
 // Handler returns the fully wired root handler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Unauthenticated: a health probe should not need a credential.
+	// Unauthenticated by necessity: a health probe should not need a credential,
+	// and the sign-in routes are how a caller gets one in the first place.
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /auth/config", s.handleAuthConfig)
+	mux.HandleFunc("GET /auth/login/{provider}", s.handleLoginStart)
+	mux.HandleFunc("GET /auth/callback/{provider}", s.handleLoginCallback)
 
 	api := http.NewServeMux()
 
+	api.HandleFunc("GET /v1/me", s.handleMe)
+	api.HandleFunc("POST /v1/logout", s.handleLogout)
 	api.HandleFunc("GET /v1/sources", s.handleListSources)
+
+	api.HandleFunc("GET /v1/tokens", s.handleListTokens)
+	api.HandleFunc("POST /v1/tokens", s.handleCreateToken)
+	api.HandleFunc("DELETE /v1/tokens/{id}", s.handleRevokeToken)
 
 	for _, res := range []struct {
 		path   string

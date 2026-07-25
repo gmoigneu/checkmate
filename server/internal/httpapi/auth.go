@@ -8,11 +8,12 @@ import (
 	"strings"
 
 	"github.com/nls/checkmate/server/internal/model"
+	"github.com/nls/checkmate/server/internal/store"
 )
 
 // Scopes granted to API tokens. Read covers every GET; write covers every
-// mutation. OAuth may add finer grains later, but a personal system does not
-// need per-resource scopes to start with.
+// mutation. Session cookies always carry both, since they stand in for the
+// owner's own browser.
 const (
 	ScopeRead  = "read"
 	ScopeWrite = "write"
@@ -68,36 +69,41 @@ func (s *Server) caller(w http.ResponseWriter, r *http.Request) (model.Identity,
 	return ident, true
 }
 
-// requireAuth authenticates a bearer token and enforces the read/write scope
-// implied by the request method.
+// requireAuth authenticates a request and enforces the scope its method implies.
+//
+// Two credential kinds are accepted: a bearer token for native and machine
+// clients, and a session cookie for the web UI. Both resolve to the same users
+// row, so everything below this point is identical.
 //
 // This is deliberately the only place a request acquires an identity: handlers
-// receive a user id they cannot choose, so there is no route on which a caller
-// can name someone else as the owner of their data.
+// receive a user id they cannot choose, so no route lets a caller name someone
+// else as the owner of their data.
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		secret, err := bearerToken(r)
-		if err != nil {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="checkmate"`)
-			s.writeError(w, r, http.StatusUnauthorized, "missing or malformed bearer token")
-
+		ident, ok := s.authenticate(w, r)
+		if !ok {
 			return
-		}
-
-		ident, err := s.store.AuthenticateToken(r.Context(), secret)
-		if err != nil {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="checkmate", error="invalid_token"`)
-			s.writeError(w, r, http.StatusUnauthorized, "invalid or expired token")
-
-			return
-		}
-
-		required := ScopeWrite
-		if r.Method == http.MethodGet || r.Method == http.MethodHead {
-			required = ScopeRead
 		}
 
 		recordCaller(r.Context(), ident.UserID)
+
+		// A cookie is attached by the browser automatically, so a cross-site
+		// page could drive a state change with it. SameSite=Lax already blocks
+		// that for unsafe methods; this is the second lock, and it also covers
+		// clients that ignore SameSite. Bearer tokens are exempt because they
+		// have to be attached deliberately.
+		if ident.ViaCookie() && !isSafeMethod(r.Method) {
+			if err := s.checkSameOrigin(r); err != nil {
+				s.writeError(w, r, http.StatusForbidden, err.Error())
+
+				return
+			}
+		}
+
+		required := ScopeWrite
+		if isSafeMethod(r.Method) {
+			required = ScopeRead
+		}
 
 		if !ident.HasScope(required) {
 			s.writeError(w, r, http.StatusForbidden, "token is missing the "+required+" scope")
@@ -107,6 +113,83 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r.WithContext(withIdentity(r.Context(), ident)))
 	})
+}
+
+// authenticate resolves whichever credential the request carries.
+func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (model.Identity, bool) {
+	if secret, err := bearerToken(r); err == nil {
+		ident, err := s.store.AuthenticateToken(r.Context(), secret)
+		if err != nil {
+			if !errors.Is(err, store.ErrInvalidToken) {
+				s.log.Error("authenticate token", slog.Any("error", err))
+			}
+
+			w.Header().Set("WWW-Authenticate", `Bearer realm="checkmate", error="invalid_token"`)
+			s.writeError(w, r, http.StatusUnauthorized, "invalid or expired token")
+
+			return model.Identity{}, false
+		}
+
+		return ident, true
+	}
+
+	if cookie, err := r.Cookie(s.sessionCookieName()); err == nil && cookie.Value != "" {
+		ident, err := s.store.AuthenticateSession(r.Context(), cookie.Value, s.cfg.SessionIdleTimeout)
+		if err != nil {
+			if !errors.Is(err, store.ErrInvalidSession) {
+				s.log.Error("authenticate session", slog.Any("error", err))
+			}
+
+			// Clear the dead cookie so the browser stops presenting it.
+			s.clearSessionCookie(w)
+			s.writeError(w, r, http.StatusUnauthorized, "session is invalid or expired")
+
+			return model.Identity{}, false
+		}
+
+		return ident, true
+	}
+
+	w.Header().Set("WWW-Authenticate", `Bearer realm="checkmate"`)
+	s.writeError(w, r, http.StatusUnauthorized, "authentication required")
+
+	return model.Identity{}, false
+}
+
+// checkSameOrigin rejects a cookie-authenticated mutation that did not come from
+// our own origin.
+//
+// Fetch metadata is preferred when present because the browser computes it and a
+// page cannot forge it. Origin is the fallback. A request carrying neither is
+// refused rather than trusted: that is the shape a CSRF attempt takes from an
+// older client.
+func (s *Server) checkSameOrigin(r *http.Request) error {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "same-origin", "none":
+		return nil
+	case "cross-site", "same-site":
+		return errors.New("cross-origin request refused")
+	}
+
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return errors.New("Origin header is required for cookie-authenticated writes")
+	}
+
+	if !strings.EqualFold(strings.TrimRight(origin, "/"), s.cfg.BaseURL) {
+		return errors.New("cross-origin request refused")
+	}
+
+	return nil
+}
+
+func isSafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	default:
+		return false
+	}
 }
 
 // errNoBearer means the Authorization header was absent or not a bearer token.
@@ -129,4 +212,40 @@ func bearerToken(r *http.Request) (string, error) {
 	}
 
 	return value, nil
+}
+
+// sessionCookieName picks the cookie name matching the Secure setting. Browsers
+// reject a __Host- prefixed cookie that is not Secure, so development over plain
+// http needs the unprefixed name.
+func (s *Server) sessionCookieName() string {
+	if s.cfg.SecureCookies {
+		return store.SessionCookieName
+	}
+
+	return store.SessionCookieNameInsecure
+}
+
+func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     s.sessionCookieName(),
+		Value:    value,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   s.cfg.SecureCookies,
+		SameSite: http.SameSiteLaxMode,
+		// No Expires: a session cookie dies with the browser session, and the
+		// server-side row is the real lifetime.
+	})
+}
+
+func (s *Server) clearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     s.sessionCookieName(),
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   s.cfg.SecureCookies,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
 }
