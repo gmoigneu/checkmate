@@ -57,11 +57,13 @@
   --text-secondary: var(--ink-500);
   --text-tertiary: var(--ink-400);
   --text-disabled: var(--ink-200);
+  --text-inverse: var(--paper-050);
   --text-accent: var(--terracotta-600);
   --surface-page: var(--paper-050);
   --surface-card: var(--paper-000);
   --surface-sunken: var(--paper-100);
   --surface-sidebar: var(--paper-100);
+  --surface-inverse: var(--ink-700);
   --surface-hover: rgb(140 107 87 / 7%);
   --surface-press: rgb(140 107 87 / 12%);
   --surface-selected: var(--terracotta-050);
@@ -429,8 +431,13 @@ kbd {
   border-radius: 50%;
 }
 
-.cm-context-title {
-  color: var(--paper-000);
+.cm-context-hero {
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+}
+
+.cm-context-hero h1 {
+  color: inherit;
 }
 
 .cm-project-link {
