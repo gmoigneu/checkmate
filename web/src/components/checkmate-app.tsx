@@ -3,23 +3,27 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
 	ArrowLeft,
 	ArrowRight,
+	CalendarDays,
 	Check,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
 	type Circle,
 	CircleDotDashed,
-	Clock3,
 	Command,
+	Hourglass,
 	Inbox,
 	LoaderCircle,
 	Menu,
 	MoreHorizontal,
+	OctagonX,
 	Plus,
 	RefreshCw,
+	Repeat2,
 	Search,
 	Settings,
 	Sparkles,
+	Sun,
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -58,8 +62,9 @@ const navItems: Array<{
 	icon: typeof Circle;
 	href: string;
 }> = [
-	{ page: "brief", label: "Brief", icon: Sparkles, href: "/" },
+	{ page: "brief", label: "Brief", icon: Sun, href: "/" },
 	{ page: "inbox", label: "Inbox", icon: Inbox, href: "/inbox" },
+	{ page: "tasks", label: "Upcoming", icon: CalendarDays, href: "/tasks" },
 ];
 
 function pageForPath(pathname: string): Page {
@@ -121,12 +126,15 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		return () => window.removeEventListener("keydown", handler);
 	}, []);
 
-	if (me.error instanceof ApiError && me.error.status === 401) {
+	const needsAuthentication =
+		me.error instanceof ApiError && me.error.status === 401;
+	useEffect(() => {
+		if (!needsAuthentication) return;
 		window.location.assign(
 			`/signin?redirect_to=${encodeURIComponent(location.pathname)}`,
 		);
-		return null;
-	}
+	}, [location.pathname, needsAuthentication]);
+	if (needsAuthentication) return null;
 
 	const isLoading = me.isLoading || contexts.isLoading || brief.isLoading;
 	const invalidate = () =>
@@ -175,8 +183,43 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 	};
 
 	return (
-		<div className="min-h-screen bg-[var(--page)] text-foreground">
-			<div className="fixed inset-x-0 top-0 z-50 h-1 bg-[var(--coral)]" />
+		<div className="cm-shell">
+			<header className="cm-topbar">
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					className="cm-menu-button lg:hidden"
+					onClick={() => setSidebarOpen(true)}
+					aria-label="Open navigation"
+				>
+					<Menu />
+				</Button>
+				<Link to="/" className="cm-brand" aria-label="Checkmate home">
+					<span className="cm-brand-mark">
+						<span />
+						<span />
+						<span />
+					</span>
+					<span>Checkmate</span>
+				</Link>
+				<button
+					type="button"
+					className="cm-command"
+					onClick={() => setCaptureOpen(true)}
+				>
+					<Search className="size-3.5" />
+					<span>Capture or search</span>
+					<kbd>⌘K</kbd>
+				</button>
+				<div className="cm-topbar-spacer" />
+				<button type="button" className="cm-sync" onClick={invalidate}>
+					<RefreshCw className="size-3.5" />
+					<span>Synced now</span>
+				</button>
+				<button type="button" className="cm-avatar" aria-label="Account menu">
+					{me.data?.name.slice(0, 2).toUpperCase() ?? "CM"}
+				</button>
+			</header>
 			<aside className="hidden lg:block">
 				<Sidebar
 					page={page}
@@ -189,7 +232,8 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 			<Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
 				<SheetContent
 					side="left"
-					className="w-80 border-none bg-[var(--sidebar)] p-0 lg:hidden"
+					showCloseButton={false}
+					className="w-[248px] border-none bg-[var(--surface-sidebar)] p-0 lg:hidden"
 				>
 					<Sidebar
 						page={page}
@@ -200,47 +244,11 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 					/>
 				</SheetContent>
 			</Sheet>
-			<main className="lg:pl-72">
-				<header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border/70 bg-[color:var(--page)/0.9] px-4 backdrop-blur-xl sm:px-7">
-					<Button
-						variant="ghost"
-						size="icon"
-						className="lg:hidden"
-						onClick={() => setSidebarOpen(true)}
-						aria-label="Open navigation"
-					>
-						<Menu />
-					</Button>
-					<button
-						className="group hidden max-w-sm items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground transition hover:border-[var(--coral)] hover:text-foreground md:flex"
-						onClick={() => setCaptureOpen(true)}
-					>
-						<Search className="size-4" />{" "}
-						<span className="mr-6">Capture anything…</span>
-						<kbd className="rounded bg-muted px-1.5 py-0.5 text-xs">⌘K</kbd>
-					</button>
-					<div className="ml-auto flex items-center gap-2">
-						<button
-							className="hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted sm:flex"
-							onClick={invalidate}
-						>
-							<span className="size-2 rounded-full bg-[var(--sage)]" /> Synced
-							now
-						</button>
-						<button
-							className="flex size-9 items-center justify-center rounded-full bg-[var(--ink)] text-xs font-semibold text-white"
-							aria-label="Account menu"
-						>
-							{me.data?.name.slice(0, 2).toUpperCase() ?? "CM"}
-						</button>
-					</div>
-				</header>
-				<div className="mx-auto max-w-6xl px-4 py-7 sm:px-7 sm:py-10">
-					{content()}
-				</div>
+			<main className="cm-main">
+				<div className="cm-page">{content()}</div>
 			</main>
 			<Button
-				className="fixed bottom-5 right-5 z-20 size-14 rounded-full bg-[var(--coral)] shadow-lg hover:bg-[var(--coral-deep)] lg:hidden"
+				className="fixed right-5 bottom-5 z-20 size-12 rounded-full bg-[var(--accent)] text-white shadow-[var(--shadow-accent)] hover:bg-[var(--accent-hover)] lg:hidden"
 				size="icon"
 				onClick={() => setCaptureOpen(true)}
 				aria-label="Capture a task"
@@ -283,27 +291,26 @@ function Sidebar({
 	onCapture: () => void;
 }) {
 	return (
-		<div className="fixed inset-y-0 flex w-72 flex-col bg-[var(--sidebar)] px-4 py-6 text-[var(--sidebar-text)]">
-			<Link to="/" className="mb-8 flex items-center gap-3 px-3">
-				<span className="grid size-9 place-items-center rounded-[14px] bg-[var(--coral)] text-lg font-black text-white">
-					C
-				</span>
-				<span className="font-display text-xl tracking-tight">Checkmate</span>
-			</Link>
-			<nav className="space-y-1">
+		<div className="cm-sidebar">
+			<nav className="cm-sidebar-group" aria-label="Primary navigation">
 				{navItems.map((item) => (
 					<Link
 						key={item.page}
 						to={item.href}
 						className={cn(
-							"flex items-center justify-between rounded-xl px-3 py-2.5 text-sm transition",
-							page === item.page
-								? "bg-white/10 font-medium text-white"
-								: "text-white/60 hover:bg-white/6 hover:text-white",
+							"cm-sidebar-item",
+							page === item.page ? "cm-sidebar-item-selected" : "",
 						)}
 					>
-						<span className="flex items-center gap-3">
-							<item.icon className="size-4" />
+						<span className="cm-sidebar-label">
+							<item.icon
+								className={cn(
+									"size-[17px]",
+									item.page === "brief" && "text-[var(--status-today)]",
+									item.page === "inbox" && "text-[var(--status-inbox)]",
+									item.page === "tasks" && "text-[var(--status-upcoming)]",
+								)}
+							/>
 							{item.label}
 						</span>
 						<Count
@@ -318,31 +325,31 @@ function Sidebar({
 					</Link>
 				))}
 			</nav>
-			<div className="my-6 border-t border-white/10" />
-			<div className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-				Contexts
-			</div>
-			<nav className="space-y-1">
+			<div className="cm-sidebar-gap" />
+			<nav className="cm-sidebar-group" aria-label="Contexts and projects">
 				{contexts.map((context, index) => (
 					<div key={context.id}>
-						<Link
-							to="/c/$slug"
-							params={{ slug: context.slug }}
-							className={cn(
-								"flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-white/65 transition hover:bg-white/6 hover:text-white",
-								page === "context" && "bg-white/10 text-white",
-							)}
-						>
-							<span
-								className="size-2 rounded-full"
-								style={{
-									backgroundColor:
-										context.color ??
-										contextPalette[index % contextPalette.length],
-								}}
-							/>
-							{context.name}
-						</Link>
+						<div className="cm-context-heading">
+							<ChevronDown className="size-3 text-[var(--text-tertiary)]" />
+							<Link
+								to="/c/$slug"
+								params={{ slug: context.slug }}
+								className={cn(
+									"cm-context-link",
+									page === "context" && "cm-context-link-selected",
+								)}
+							>
+								<span
+									className="cm-context-dot"
+									style={{
+										backgroundColor:
+											context.color ??
+											contextPalette[index % contextPalette.length],
+									}}
+								/>
+								<span>{context.name}</span>
+							</Link>
+						</div>
 						{projects
 							.filter(
 								(project) =>
@@ -355,50 +362,63 @@ function Sidebar({
 									key={project.id}
 									to="/p/$projectId"
 									params={{ projectId: project.id }}
-									className="ml-8 block truncate rounded-lg px-3 py-1.5 text-xs text-white/40 hover:bg-white/5 hover:text-white/80"
+									className="cm-project-link"
 								>
+									<span className="cm-progress-pie" />
 									{project.name}
 								</Link>
 							))}
 					</div>
 				))}
 			</nav>
-			<div className="mt-auto space-y-1">
+			<div className="cm-sidebar-gap" />
+			<nav className="cm-sidebar-group" aria-label="Supporting views">
 				<Link
 					to="/waiting"
 					className={cn(
-						"flex items-center justify-between rounded-xl px-3 py-2.5 text-sm text-white/60 hover:bg-white/6 hover:text-white",
-						page === "waiting" && "bg-white/10 text-white",
+						"cm-sidebar-item",
+						page === "waiting" && "cm-sidebar-item-selected",
 					)}
 				>
-					<span className="flex items-center gap-3">
-						<Clock3 className="size-4" />
+					<span className="cm-sidebar-label">
+						<Hourglass className="size-[17px] text-[var(--task-delegated-fg)]" />
 						Waiting on
 					</span>
 					<Count value={brief?.totals.waiting_on ?? 0} />
 				</Link>
 				<Link
 					to="/repeating"
-					className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/60 hover:bg-white/6 hover:text-white"
+					className={cn(
+						"cm-sidebar-item",
+						page === "repeating" && "cm-sidebar-item-selected",
+					)}
 				>
-					<RefreshCw className="size-4" />
-					Repeating
+					<span className="cm-sidebar-label">
+						<Repeat2 className="size-[17px]" />
+						Repeating
+					</span>
 				</Link>
-				<Link
-					to="/settings"
-					className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/60 hover:bg-white/6 hover:text-white"
-				>
-					<Settings className="size-4" />
-					Settings
+				<Link to="/tasks" className="cm-sidebar-item">
+					<span className="cm-sidebar-label">
+						<OctagonX className="size-[17px] text-[var(--task-blocked-fg)]" />
+						Blocked
+					</span>
+					<Count value={brief?.totals.blocked ?? 0} />
 				</Link>
-				<Button
-					className="mt-4 w-full justify-start gap-2 bg-white text-[var(--ink)] hover:bg-white/90"
+			</nav>
+			<div className="cm-sidebar-spacer" />
+			<div className="cm-sidebar-footer">
+				<button
+					type="button"
+					className="cm-icon-button"
 					onClick={onCapture}
+					aria-label="New task"
 				>
 					<Plus className="size-4" />
-					New task{" "}
-					<kbd className="ml-auto rounded bg-black/5 px-1.5 text-[10px]">C</kbd>
-				</Button>
+				</button>
+				<Link to="/settings" className="cm-icon-button" aria-label="Settings">
+					<Settings className="size-4" />
+				</Link>
 			</div>
 		</div>
 	);
@@ -406,9 +426,7 @@ function Sidebar({
 
 function Count({ value }: { value: number }) {
 	return value ? (
-		<span className="grid min-w-5 place-items-center rounded-full bg-white/12 px-1.5 py-0.5 text-[10px] tabular-nums text-white/80">
-			{value > 99 ? "99+" : value}
-		</span>
+		<span className="cm-count">{value > 99 ? "99+" : value}</span>
 	) : null;
 }
 
@@ -429,8 +447,68 @@ function BriefPage({
 		initialData: brief,
 	});
 	const data = query.data ?? brief;
+	const canonical = useMemo(() => {
+		const orderedBuckets: Array<[string, Task[]]> = [
+			["overdue", data.overdue],
+			["due today", data.due_today],
+			["planned", data.planned],
+			["in progress", data.in_progress],
+			["waiting on", data.waiting_on.flatMap((group) => group.tasks)],
+			["blocked", data.blocked],
+			["inbox", data.inbox],
+		];
+		const memberships = new Map<string, string[]>();
+		for (const [label, tasks] of orderedBuckets) {
+			for (const task of tasks) {
+				const labels = memberships.get(task.id) ?? [];
+				labels.push(label);
+				memberships.set(task.id, labels);
+			}
+		}
+		const seen = new Set<string>();
+		const take = (tasks: Task[], bucket: string): BriefDisplayTask[] =>
+			tasks
+				.filter((task) => {
+					if (seen.has(task.id)) return false;
+					seen.add(task.id);
+					return true;
+				})
+				.map((task) => ({
+					...task,
+					alsoIn: (memberships.get(task.id) ?? []).filter(
+						(label) => label !== bucket,
+					),
+				}));
+		const overdue = take(data.overdue, "overdue");
+		const dueToday = take(data.due_today, "due today");
+		const planned = take(data.planned, "planned");
+		const inProgress = take(data.in_progress, "in progress");
+		const waitingOn = data.waiting_on
+			.map((group) => ({
+				...group,
+				tasks: take(group.tasks, "waiting on"),
+			}))
+			.filter((group) => group.tasks.length);
+		const blocked = take(data.blocked, "blocked");
+		const inbox = take(data.inbox, "inbox");
+		return {
+			overdue,
+			dueToday,
+			planned,
+			inProgress,
+			waitingOn,
+			blocked,
+			inbox,
+		};
+	}, [data]);
 	const openWork =
-		data.totals.overdue + data.totals.due_today + data.totals.planned;
+		canonical.overdue.length +
+		canonical.dueToday.length +
+		canonical.planned.length +
+		canonical.inProgress.length +
+		canonical.waitingOn.reduce((sum, group) => sum + group.tasks.length, 0) +
+		canonical.blocked.length +
+		canonical.inbox.length;
 	const doneRatio =
 		data.totals.completed_today + openWork
 			? Math.round(
@@ -439,24 +517,16 @@ function BriefPage({
 						100,
 				)
 			: 0;
-	const perfect = !openWork && !data.totals.inbox;
+	const perfect = !openWork;
 	return (
-		<section className="animate-in fade-in duration-500">
-			<div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-				<div>
-					<p className="mb-2 text-sm font-medium text-muted-foreground">
-						Your day, in one calm read
-					</p>
-					<h1 className="font-display text-3xl tracking-tight sm:text-4xl">
-						{displayDate(data.date)}
-					</h1>
-				</div>
-				<div className="flex flex-wrap items-center gap-2">
-					<div className="flex items-center rounded-xl border border-border bg-card p-1">
+		<section className="cm-brief">
+			<div className="cm-brief-header">
+				<h1>{displayDate(data.date)}</h1>
+				<div className="cm-brief-actions">
+					<div className="cm-day-controls">
 						<Button
 							variant="ghost"
-							size="icon"
-							className="size-8"
+							size="icon-sm"
 							onClick={() => setDate(dateOffset(date, -1))}
 							aria-label="Previous day"
 						>
@@ -465,14 +535,14 @@ function BriefPage({
 						<Button
 							variant="ghost"
 							size="sm"
+							className="cm-today-button"
 							onClick={() => setDate(todayString())}
 						>
 							Today
 						</Button>
 						<Button
 							variant="ghost"
-							size="icon"
-							className="size-8"
+							size="icon-sm"
 							onClick={() => setDate(dateOffset(date, 1))}
 							aria-label="Next day"
 						>
@@ -482,7 +552,8 @@ function BriefPage({
 					<select
 						value={contextId ?? ""}
 						onChange={(event) => setContextId(event.target.value || undefined)}
-						className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+						className="cm-context-select"
+						aria-label="Filter the brief by context"
 					>
 						<option value="">All contexts</option>
 						{contexts.map((context) => (
@@ -497,81 +568,90 @@ function BriefPage({
 				<PerfectDay onCapture={onOpenCapture} />
 			) : (
 				<>
-					<div className="mb-8 rounded-2xl border border-border bg-card p-5 shadow-sm">
-						<div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
-							<span>
-								<strong className="text-[var(--overdue)] tabular-nums">
+					<div className="cm-summary">
+						<div className="cm-summary-stats">
+							<span className="cm-summary-stat">
+								<strong className="text-[var(--task-overdue-fg)]">
 									{data.totals.overdue}
-								</strong>{" "}
-								overdue
+								</strong>
+								<span>overdue</span>
 							</span>
-							<span>
-								<strong className="text-foreground tabular-nums">
-									{data.totals.due_today}
-								</strong>{" "}
-								due today
+							<i>·</i>
+							<span className="cm-summary-stat">
+								<strong>{data.totals.due_today}</strong>
+								<span>due today</span>
 							</span>
-							<span>
-								<strong className="text-foreground tabular-nums">
-									{data.totals.planned}
-								</strong>{" "}
-								planned
+							<i>·</i>
+							<span className="cm-summary-stat">
+								<strong>{data.totals.planned}</strong>
+								<span>planned</span>
 							</span>
-							<span>
-								<strong className="text-foreground tabular-nums">
-									{formatMinutes(data.totals.planned_minutes)}
-								</strong>{" "}
-								planned
+							<i>·</i>
+							<span className="cm-summary-stat">
+								<strong>{formatMinutes(data.totals.planned_minutes)}</strong>
 								{data.totals.planned_without_estimate
-									? ` · ${data.totals.planned_without_estimate} without estimate`
-									: ""}
+									? ` (${data.totals.planned_without_estimate} without estimate)`
+									: " planned work"}
 							</span>
 						</div>
-						<div className="mt-5 flex items-center gap-3">
-							<div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+						<div className="cm-summary-progress">
+							<div className="cm-progress-track">
 								<div
-									className="h-full rounded-full bg-[var(--sage)] transition-all"
+									className="cm-progress-value"
 									style={{ width: `${doneRatio}%` }}
 								/>
 							</div>
-							<span className="whitespace-nowrap text-xs text-muted-foreground tabular-nums">
-								{data.totals.completed_today} done today
+							<span>
+								{data.totals.completed_today} of{" "}
+								{data.totals.completed_today + openWork} done today
 							</span>
 						</div>
 					</div>
 					<BriefSection
 						title="Overdue"
 						count={data.totals.overdue}
-						tasks={data.overdue}
-						kind="overdue"
+						tasks={canonical.overdue}
+						tone="overdue"
+						contexts={contexts}
 					/>
 					<BriefSection
 						title="Due today"
 						count={data.totals.due_today}
-						tasks={data.due_today}
+						tasks={canonical.dueToday}
+						note="unestimated first"
+						contexts={contexts}
 					/>
 					<BriefSection
 						title="Planned today"
 						count={data.totals.planned}
-						tasks={data.planned}
-						planned
+						tasks={canonical.planned}
+						note={`${data.totals.planned_without_estimate} without estimate`}
+						contexts={contexts}
 					/>
 					<BriefSection
 						title="In progress"
 						count={data.totals.in_progress}
-						tasks={data.in_progress}
+						tasks={canonical.inProgress}
+						tone="in-progress"
+						contexts={contexts}
 					/>
-					<WaitingSection groups={data.waiting_on} />
+					<WaitingSection groups={canonical.waitingOn} contexts={contexts} />
 					<BriefSection
-						title={contextId ? "Inbox · all contexts" : "Inbox"}
+						title="Blocked"
+						count={data.totals.blocked}
+						tasks={canonical.blocked}
+						tone="blocked"
+						contexts={contexts}
+					/>
+					<BriefSection
+						title="Inbox"
 						count={data.totals.inbox}
-						tasks={data.inbox.slice(0, 4)}
+						tasks={canonical.inbox.slice(0, 2)}
+						note={contextId ? "all contexts" : undefined}
+						contexts={contexts}
 						action={
-							<Link
-								to="/inbox"
-								className="text-xs font-medium text-[var(--coral)] hover:underline"
-							>
-								Triage all →
+							<Link to="/inbox" className="cm-section-action">
+								Triage all <ArrowRight className="size-3.5" />
 							</Link>
 						}
 						empty="Your inbox is clear"
@@ -581,6 +661,8 @@ function BriefPage({
 						count={data.totals.completed_today}
 						tasks={data.completed_today}
 						done
+						tone="done"
+						contexts={contexts}
 					/>
 				</>
 			)}
@@ -588,122 +670,136 @@ function BriefPage({
 	);
 }
 
+type BriefDisplayTask = Task & { alsoIn?: string[] };
+
 function BriefSection({
 	title,
 	count,
 	tasks,
-	kind,
-	planned,
+	tone,
+	note,
 	done,
+	contexts,
 	action,
 	empty,
 }: {
 	title: string;
 	count: number;
-	tasks: Task[];
-	kind?: "overdue";
-	planned?: boolean;
+	tasks: BriefDisplayTask[];
+	tone?: "overdue" | "blocked" | "done" | "in-progress";
+	note?: string;
 	done?: boolean;
+	contexts?: Context[];
 	action?: React.ReactNode;
 	empty?: string;
 }) {
-	const [collapsed, setCollapsed] = useState(done);
+	const [toggled, setToggled] = useState(false);
+	const collapsed = done ? !toggled : toggled;
 	if (!count && !empty) return null;
 	return (
-		<section className="mb-7">
-			<div className="mb-2 flex items-center gap-3">
+		<section className="cm-brief-section">
+			<div className="cm-section-header">
 				<button
-					className="flex items-center gap-2 text-left"
-					onClick={() => setCollapsed(!collapsed)}
+					type="button"
+					className="cm-section-toggle"
+					onClick={() => setToggled(!toggled)}
+					aria-expanded={!collapsed}
 				>
 					<ChevronDown
-						className={cn(
-							"size-4 text-muted-foreground transition",
-							collapsed && "-rotate-90",
-						)}
+						className={cn("size-3.5 transition", collapsed && "-rotate-90")}
 					/>
-					<h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-						{title} <span className="tabular-nums">· {count}</span>
-						{planned ? (
-							<span className="normal-case tracking-normal">
-								{" "}
-								·{" "}
-								{formatMinutes(
-									tasks.reduce(
-										(total, task) => total + (task.estimate_minutes ?? 0),
-										0,
-									),
-								)}
-							</span>
-						) : null}
-					</h2>
+					<h2 className={tone ? `cm-tone-${tone}` : undefined}>{title}</h2>
+					<span className="cm-section-count">· {count}</span>
 				</button>
-				<div className="h-px flex-1 bg-border" />
+				{note ? <span className="cm-section-note">{note}</span> : null}
+				<span className="cm-section-spacer" />
 				{action}
 			</div>
 			{!collapsed &&
 				(tasks.length ? (
-					<div className="overflow-hidden rounded-2xl border border-border bg-card">
-						<div className="divide-y divide-border">
-							{tasks.map((task) => (
-								<TaskRow
-									key={task.id}
-									task={task}
-									overdue={kind === "overdue"}
-									done={done}
-								/>
-							))}
-						</div>
+					<div className="cm-task-list">
+						{tasks.map((task) => (
+							<TaskRow
+								key={task.id}
+								task={task}
+								contexts={contexts}
+								overdue={tone === "overdue"}
+								done={done}
+							/>
+						))}
 					</div>
 				) : (
-					<p className="rounded-xl bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
-						{empty}
-					</p>
+					<p className="cm-section-empty">{empty}</p>
 				))}
 		</section>
 	);
 }
 
-function WaitingSection({ groups }: { groups: Brief["waiting_on"] }) {
+function WaitingSection({
+	groups,
+	contexts,
+}: {
+	groups: Array<
+		Omit<Brief["waiting_on"][number], "tasks"> & {
+			tasks: BriefDisplayTask[];
+		}
+	>;
+	contexts?: Context[];
+}) {
+	const [collapsed, setCollapsed] = useState(false);
 	if (!groups.length) return null;
 	return (
-		<section className="mb-7">
-			<div className="mb-2 flex items-center gap-3">
-				<h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-					Waiting on ·{" "}
-					{groups.reduce((sum, group) => sum + group.tasks.length, 0)}
-				</h2>
-				<div className="h-px flex-1 bg-border" />
+		<section className="cm-brief-section">
+			<div className="cm-section-header">
+				<button
+					type="button"
+					className="cm-section-toggle"
+					onClick={() => setCollapsed(!collapsed)}
+					aria-expanded={!collapsed}
+				>
+					<ChevronDown
+						className={cn("size-3.5 transition", collapsed && "-rotate-90")}
+					/>
+					<h2 className="cm-tone-delegated">Waiting on</h2>
+					<span className="cm-section-count">
+						· {groups.reduce((sum, group) => sum + group.tasks.length, 0)}
+					</span>
+				</button>
 			</div>
-			<div className="space-y-3">
-				{groups.map((group) => (
-					<div
-						key={group.person_id}
-						className="rounded-2xl border border-border bg-card p-4"
-					>
-						<div className="mb-3 flex items-center justify-between">
-							<span className="text-sm font-medium">
-								{group.person_name}{" "}
-								<span className="text-muted-foreground">
-									· {group.tasks.length}
+			{collapsed ? null : (
+				<div className="cm-waiting-groups">
+					{groups.map((group) => (
+						<div key={group.person_id} className="cm-waiting-group">
+							<div className="cm-person-card">
+								<span className="cm-person-avatar">
+									{group.person_name
+										.split(" ")
+										.map((part) => part[0])
+										.join("")
+										.slice(0, 2)
+										.toUpperCase()}
 								</span>
-							</span>
-							<Button
-								variant="ghost"
-								size="sm"
-								className="h-7 text-xs text-[var(--coral)]"
-							>
-								Follow up
-							</Button>
+								<span>{group.person_name}</span>
+								<span className="cm-person-count">{group.tasks.length}</span>
+								<Button variant="ghost" size="sm" className="cm-follow-up">
+									<ArrowRight className="size-3.5" />
+									Follow up
+								</Button>
+							</div>
+							<div className="cm-task-list">
+								{group.tasks.map((task) => (
+									<TaskRow
+										key={task.id}
+										task={task}
+										contexts={contexts}
+										compact
+									/>
+								))}
+							</div>
 						</div>
-						<div className="divide-y divide-border">
-							{group.tasks.map((task) => (
-								<TaskRow key={task.id} task={task} compact />
-							))}
-						</div>
-					</div>
-				))}
-			</div>
+					))}
+				</div>
+			)}
 		</section>
 	);
 }
@@ -713,71 +809,111 @@ function TaskRow({
 	overdue,
 	done,
 	compact,
+	contexts,
 }: {
-	task: Task;
+	task: BriefDisplayTask;
 	overdue?: boolean;
 	done?: boolean;
 	compact?: boolean;
+	contexts?: Context[];
 }) {
 	const queryClient = useQueryClient();
+	const isDone = done || task.status === "done" || task.status === "cancelled";
+	const context = contexts?.find(
+		(candidate) => candidate.id === task.context_id,
+	);
+	const contextIndex = context ? (contexts?.indexOf(context) ?? 0) : 0;
 	const mutation = useMutation({
-		mutationFn: () => api.updateTask(task.id, { status: "done" }),
+		mutationFn: () =>
+			api.updateTask(task.id, { status: isDone ? "todo" : "done" }),
 		onSuccess: () => queryClient.invalidateQueries({ queryKey: ["brief"] }),
 	});
 	return (
-		<Link
-			to="/t/$taskId"
-			params={{ taskId: task.id }}
+		<div
 			className={cn(
-				"group flex items-center gap-3 px-4 py-3.5 transition hover:bg-muted/45",
-				compact && "px-0 py-2.5",
-				done && "opacity-55",
+				"cm-task-row",
+				compact && "cm-task-row-compact",
+				isDone && "cm-task-row-done",
 			)}
 		>
 			<button
-				className={cn(
-					"grid size-5 shrink-0 place-items-center rounded-full border transition",
-					done
-						? "border-[var(--sage)] bg-[var(--sage)] text-white"
-						: "border-muted-foreground/50 hover:border-[var(--coral)] hover:text-[var(--coral)]",
-				)}
+				type="button"
+				className={cn("cm-completion", isDone && "cm-completion-done")}
 				onClick={(event) => {
 					event.preventDefault();
 					mutation.mutate();
 				}}
-				aria-label={`Mark ${task.title} as done`}
+				aria-label={`${isDone ? "Mark" : "Mark"} ${task.title} ${
+					isDone ? "as not done" : "as done"
+				}`}
 			>
-				{done ? (
+				{isDone ? (
 					<Check className="size-3" />
 				) : mutation.isPending ? (
 					<LoaderCircle className="size-3 animate-spin" />
 				) : null}
 			</button>
-			<span className="min-w-0 flex-1">
-				<span className="block truncate text-sm font-medium">{task.title}</span>
-				<span className="mt-1 flex flex-wrap gap-x-2 text-xs text-muted-foreground">
-					{task.project_id ? <span>Project</span> : null}
-					{task.kind === "recurring" ? <span>Repeats</span> : null}
-					{task.delegated_to_name ? (
-						<span>→ {task.delegated_to_name}</span>
-					) : null}
-				</span>
-			</span>
-			{task.estimate_minutes ? (
-				<span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
-					{formatMinutes(task.estimate_minutes)}
-				</span>
-			) : null}
-			{overdue && task.due_on ? (
-				<span className="rounded-md bg-[var(--overdue-bg)] px-2 py-1 text-xs font-medium tabular-nums text-[var(--overdue)]">
-					due {formatDate(task.due_on)} · {daysLate(task.due_on)}d
-				</span>
-			) : task.due_on ? (
-				<span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
-					due {formatDate(task.due_on)}
-				</span>
-			) : null}
-		</Link>
+			<Link
+				to="/t/$taskId"
+				params={{ taskId: task.id }}
+				className="cm-task-link"
+			>
+				<span className="cm-task-title">{task.title}</span>
+				{task.alsoIn?.length ? (
+					<span className="cm-also-in">↳ {task.alsoIn.join(" · ")}</span>
+				) : null}
+				{task.source ? (
+					<span className="cm-task-meta cm-meta-source">{task.source}</span>
+				) : null}
+				{task.estimate_minutes ? (
+					<span className="cm-task-meta cm-estimate">
+						{formatMinutes(task.estimate_minutes)}
+					</span>
+				) : null}
+				{task.kind === "recurring" ? (
+					<span className="cm-task-meta">
+						<Repeat2 className="size-3" /> Repeats
+					</span>
+				) : null}
+				{task.delegated_to_name ? (
+					<span className="cm-task-meta cm-delegated">
+						<ArrowRight className="size-3" /> {task.delegated_to_name}
+					</span>
+				) : null}
+				{task.planned_on ? (
+					<span className="cm-date-chip cm-planned-chip">
+						Plan {formatDate(task.planned_on)}
+					</span>
+				) : null}
+				{context ? (
+					<span className="cm-task-context">
+						<span
+							className="cm-context-dot"
+							style={{
+								backgroundColor:
+									context.color ??
+									contextPalette[contextIndex % contextPalette.length],
+							}}
+						/>
+						<span>{context.name}</span>
+					</span>
+				) : null}
+				{task.due_on ? (
+					<span
+						className={cn(
+							"cm-date-chip cm-due-chip",
+							(overdue || task.due_on < todayString()) && "cm-overdue-chip",
+							task.due_on === todayString() && "cm-due-today-chip",
+						)}
+					>
+						Due {formatDate(task.due_on)}
+						{overdue || task.due_on < todayString()
+							? ` · ${daysLate(task.due_on)}d`
+							: ""}
+					</span>
+				) : null}
+			</Link>
+		</div>
 	);
 }
 
@@ -1032,12 +1168,18 @@ function TriageCard({
 	return (
 		<section className="mx-auto max-w-3xl">
 			<div className="mb-8 flex items-center justify-between text-sm text-muted-foreground">
-				<button onClick={onFinish} className="hover:text-foreground">
+				<button
+					type="button"
+					onClick={onFinish}
+					className="hover:text-foreground"
+				>
 					<ArrowLeft className="mr-1 inline size-4" />
 					Inbox
 				</button>
 				<span>Triage · 1 of {total}</span>
-				<button onClick={onFinish}>Done</button>
+				<button type="button" onClick={onFinish}>
+					Done
+				</button>
 			</div>
 			<article className="rounded-3xl border border-border bg-card p-7 shadow-sm sm:p-10">
 				<p className="mb-4 text-sm text-muted-foreground">
@@ -1052,6 +1194,7 @@ function TriageCard({
 					<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
 						{contexts.map((context, index) => (
 							<button
+								type="button"
 								key={context.id}
 								onClick={() => setContextId(context.id)}
 								className={cn(
@@ -1160,6 +1303,7 @@ function TaskListPage() {
 					value={status}
 					onChange={(event) => setStatus(event.target.value)}
 					className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
+					aria-label="Filter tasks by status"
 				>
 					<option value="">Any status</option>
 					<option value="todo,in_progress">Open work</option>
@@ -1427,7 +1571,10 @@ function SettingsPage({
 }
 function SettingsRow({ label, value }: { label: string; value: string }) {
 	return (
-		<button className="flex w-full items-center justify-between border-b border-border px-5 py-4 text-left last:border-0 hover:bg-muted/40">
+		<button
+			type="button"
+			className="flex w-full items-center justify-between border-b border-border px-5 py-4 text-left last:border-0 hover:bg-muted/40"
+		>
 			<span className="font-medium">{label}</span>
 			<span className="flex items-center gap-2 text-sm text-muted-foreground">
 				{value}
@@ -1480,7 +1627,7 @@ function TaskDetail({
 						<X />
 					</Button>
 					<div className="flex gap-1">
-						<Button variant="ghost" size="icon">
+						<Button variant="ghost" size="icon" aria-label="More task actions">
 							<MoreHorizontal />
 						</Button>
 					</div>
@@ -1491,6 +1638,7 @@ function TaskDetail({
 					<div className="p-6">
 						<div className="flex gap-3">
 							<button
+								type="button"
 								className={cn(
 									"mt-1 grid size-6 shrink-0 place-items-center rounded-full border",
 									task.status === "done"
@@ -1501,6 +1649,11 @@ function TaskDetail({
 									update.mutate({
 										status: task.status === "done" ? "todo" : "done",
 									})
+								}
+								aria-label={
+									task.status === "done"
+										? `Mark ${task.title} as not done`
+										: `Mark ${task.title} as done`
 								}
 							>
 								{task.status === "done" ? <Check className="size-4" /> : null}
@@ -1520,6 +1673,7 @@ function TaskDetail({
 									/>
 								) : (
 									<button
+										type="button"
 										className="text-left font-display text-3xl leading-tight tracking-tight"
 										onClick={() => setEditing(true)}
 									>
@@ -1578,6 +1732,7 @@ function TaskDetail({
 							<Field label="Estimate">
 								{task.estimate_minutes ? (
 									<button
+										type="button"
 										onClick={() => update.mutate({ estimate_minutes: null })}
 										className="text-sm text-muted-foreground"
 									>
@@ -1587,6 +1742,7 @@ function TaskDetail({
 									<div className="flex gap-1">
 										{[15, 30, 60].map((minutes) => (
 											<button
+												type="button"
 												key={minutes}
 												onClick={() =>
 													update.mutate({ estimate_minutes: minutes })
@@ -1688,6 +1844,7 @@ function DateField({
 			<div className="flex items-center gap-2">
 				{value ? (
 					<button
+						type="button"
 						onClick={() => onChange(null)}
 						className="text-sm text-muted-foreground"
 					>

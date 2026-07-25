@@ -1,4 +1,4 @@
-export const contextPalette = ["#4B7BA7", "#BF7255", "#668A6A", "#8B6FA4"];
+export const contextPalette = ["#C05E3C", "#6E7A4F", "#C39A3A", "#6A6B7C"];
 
 export function formatMinutes(minutes: number | null | undefined) {
 	if (!minutes) return "No estimate";
@@ -36,7 +36,7 @@ export function todayString() {
 }
 
 export function displayDate(date: string) {
-	return new Intl.DateTimeFormat(undefined, {
+	return new Intl.DateTimeFormat("en-GB", {
 		weekday: "long",
 		day: "numeric",
 		month: "long",
