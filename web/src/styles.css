@@ -57,13 +57,11 @@
   --text-secondary: var(--ink-500);
   --text-tertiary: var(--ink-400);
   --text-disabled: var(--ink-200);
-  --text-inverse: var(--paper-050);
   --text-accent: var(--terracotta-600);
   --surface-page: var(--paper-050);
   --surface-card: var(--paper-000);
   --surface-sunken: var(--paper-100);
   --surface-sidebar: var(--paper-100);
-  --surface-inverse: var(--ink-700);
   --surface-hover: rgb(140 107 87 / 7%);
   --surface-press: rgb(140 107 87 / 12%);
   --surface-selected: var(--terracotta-050);
@@ -431,13 +429,25 @@ kbd {
   border-radius: 50%;
 }
 
-.cm-context-hero {
-  background: var(--surface-inverse);
-  color: var(--text-inverse);
+.cm-context-card {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-sunken);
+  box-shadow: var(--shadow-inset);
 }
 
-.cm-context-hero h1 {
-  color: inherit;
+.cm-context-kicker,
+.cm-context-stats {
+  color: var(--text-secondary);
+}
+
+.cm-context-stats {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cm-context-stats b {
+  color: var(--text-primary);
+  font: 500 13px/1.3 var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .cm-project-link {

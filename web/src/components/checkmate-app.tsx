@@ -1393,14 +1393,18 @@ function ContextPage({
 		contextPalette[contexts.indexOf(context) % contextPalette.length];
 	return (
 		<section>
-			<div className="cm-context-hero mb-9 rounded-3xl px-7 py-8">
-				<span
-					className="mb-5 block size-3 rounded-full"
-					style={{ backgroundColor: color }}
-				/>
-				<p className="mb-2 text-sm opacity-60">One life at a time</p>
-				<h1 className="font-display text-4xl tracking-tight">{context.name}</h1>
-				<div className="mt-7 flex gap-7 text-sm">
+			<div className="cm-context-card mb-9 rounded-3xl px-7 py-7">
+				<div className="cm-context-kicker flex items-center gap-3 text-sm">
+					<span
+						className="block size-3 rounded-full"
+						style={{ backgroundColor: color }}
+					/>
+					<span>One life at a time</span>
+				</div>
+				<h1 className="mt-4 font-display text-4xl tracking-tight">
+					{context.name}
+				</h1>
+				<div className="cm-context-stats mt-7 flex gap-7 pt-4 text-sm">
 					<span>
 						<b className="tabular-nums">
 							{tasks.data?.data.filter(
