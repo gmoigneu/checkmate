@@ -23,8 +23,13 @@ cmd/checkmate            entrypoint: serve, migrate, user, token
 internal/config          CHECKMATE_* environment configuration
 internal/database        sqlite connection, embedded goose migrations
 internal/database/migrations
+internal/model           domain types shared by store and HTTP
+internal/store           all SQL; every method takes a user id and scopes by it
 internal/account         user / context seeding, API token issuing
-internal/httpapi         router, middleware, handlers
+internal/login           federated sign-in (OIDC client)
+internal/oauth           OAuth 2.1 authorization server, CIMD fetching
+internal/httpapi         router, middleware, handlers, consent screen
+internal/patch           absent / null / set JSON field for PATCH
 internal/id              UUIDv7 generation
 ```
 
