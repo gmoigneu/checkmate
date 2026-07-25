@@ -32,6 +32,11 @@ type BriefTotals struct {
 	InProgress     int `json:"in_progress"`
 	CompletedToday int `json:"completed_today"`
 
+	// CancelledToday counts what was closed by deciding not to do it. Reported
+	// separately from CompletedToday because deciding against something is not an
+	// accomplishment, but it is a decision worth seeing.
+	CancelledToday int `json:"cancelled_today"`
+
 	// PlannedMinutes is the summed estimate of what is planned for the day, so a
 	// day that has been over-committed is visible before it starts.
 	PlannedMinutes int `json:"planned_minutes"`
@@ -56,6 +61,11 @@ type Brief struct {
 
 	// CompletedToday gives the day a sense of progress rather than only debt.
 	CompletedToday []model.Task `json:"completed_today"`
+
+	// CancelledToday is what was dropped rather than finished. Listed rather than
+	// only counted, because there is otherwise no way to answer "what did I decide
+	// against today" -- cancelled tasks appear in no other bucket.
+	CancelledToday []model.Task `json:"cancelled_today"`
 
 	Totals BriefTotals `json:"totals"`
 }
@@ -172,6 +182,16 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 		return Brief{}, err
 	}
 
+	cancelled, err := s.briefTasks(ctx,
+		`user_id = ? AND deleted_at IS NULL AND status = 'cancelled'
+		   AND cancelled_at LIKE ? || '%'`+contextClause,
+		append([]any{userID, f.Date}, contextArgs...),
+		"cancelled_at DESC",
+	)
+	if err != nil {
+		return Brief{}, err
+	}
+
 	waiting, err := s.groupWaitingOn(ctx, userID, delegated.Tasks)
 	if err != nil {
 		return Brief{}, err
@@ -186,6 +206,7 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 		WaitingOn:      delegated.Total,
 		InProgress:     inProgress.Total,
 		CompletedToday: completed.Total,
+		CancelledToday: cancelled.Total,
 
 		// Summed over the whole bucket by SQL, so an over-committed day still
 		// reads correctly when the list itself was capped.
@@ -200,6 +221,7 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 	brief.Inbox = inbox.Tasks
 	brief.Blocked = blocked.Tasks
 	brief.CompletedToday = completed.Tasks
+	brief.CancelledToday = cancelled.Tasks
 	brief.WaitingOn = waiting
 
 	return brief, nil

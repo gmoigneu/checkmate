@@ -908,9 +908,9 @@ func TestMCPListTasksFilters(t *testing.T) {
 		t.Errorf("default list returned %v tasks, want the 3 open ones", open["count"])
 	}
 
-	all := structured(t, h.callTool(u.Token, "list_tasks", map[string]any{"include_done": true}))
+	all := structured(t, h.callTool(u.Token, "list_tasks", map[string]any{"include_closed": true}))
 	if count, _ := all["count"].(float64); count != 4 {
-		t.Errorf("include_done returned %v tasks, want 4", all["count"])
+		t.Errorf("include_closed returned %v tasks, want 4", all["count"])
 	}
 
 	search := structured(t, h.callTool(u.Token, "list_tasks", map[string]any{"query": "task 1"}))

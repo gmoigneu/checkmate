@@ -114,6 +114,13 @@ than deleted: the tasks it already spawned are real history and a deleted templa
 would orphan them. One unparseable rule is logged and skipped without stopping the
 other templates.
 
+A retired series is also stamped with `completed_at`, which is what separates
+**finished** from **paused**. `active` alone conflated them, and they mean opposite
+things to a person: one offers to resume, the other is over. The API exposes a derived
+`state` of `active` / `paused` / `finished` and a `?state=` filter. Resuming a
+finished series only does something if the rule changes too — the spawner runs inline
+on update, so a spent rule is retired again on the same request.
+
 The spawner is the one component that steps outside the per-user store convention
 — it walks every account — so each row it writes takes its `user_id` from the
 template. There is a test for exactly that.

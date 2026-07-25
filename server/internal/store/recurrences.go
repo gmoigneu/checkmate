@@ -12,7 +12,7 @@ import (
 
 const recurrenceColumns = `id, context_id, project_id, source_key, title, details,
 	rrule, timezone, estimate_minutes, delegated_to_id, lead_days, starts_on,
-	ends_on, next_occurrence_on, last_spawned_on, active,
+	ends_on, next_occurrence_on, last_spawned_on, active, completed_at,
 	created_at, updated_at, deleted_at, rev`
 
 // RecurrenceCreate is the input for creating a recurrence template.
@@ -55,6 +55,10 @@ type RecurrenceFilter struct {
 
 	ContextID string
 	Active    *bool
+
+	// State filters on the derived three-way state. Validate against
+	// model.RecurrenceStates before calling.
+	State string
 }
 
 // ListRecurrences returns the caller's recurrence templates, newest first.
@@ -72,6 +76,16 @@ func (s *Store) ListRecurrences(ctx context.Context, userID string, f Recurrence
 
 	if f.Active != nil {
 		c.add("active = ?", boolToInt(*f.Active))
+	}
+
+	// The derived state, expressed as the stored pair it comes from.
+	switch f.State {
+	case model.RecurrenceActive:
+		c.add("active = 1")
+	case model.RecurrencePaused:
+		c.add("active = 0 AND completed_at IS NULL")
+	case model.RecurrenceFinished:
+		c.add("active = 0 AND completed_at IS NOT NULL")
 	}
 
 	if f.Cursor != "" {
@@ -196,6 +210,14 @@ func (s *Store) UpdateRecurrence(ctx context.Context, userID, recurrenceID strin
 		applyField(b, "ends_on", in.EndsOn)
 		applyField(b, "source_key", in.Source)
 		applyBoolField(b, "active", in.Active)
+
+		// Resuming clears the retirement marker, so the spawner re-decides. If the
+		// rule really is spent it will retire the series again on the next pass --
+		// which is the honest outcome, and immediate, because updating a template
+		// runs the spawner inline.
+		if in.Active.Present() && in.Active.Value {
+			b.set("completed_at", nil)
+		}
 
 		contextID := current.ContextID
 		if in.ContextID.Present() {
@@ -342,12 +364,14 @@ func scanRecurrence(sc scanner) (model.Recurrence, error) {
 	err := sc.Scan(&v.ID, &v.ContextID, &v.ProjectID, &v.Source, &v.Title, &v.Details,
 		&v.RRule, &v.Timezone, &v.EstimateMinutes, &v.DelegatedToID, &v.LeadDays,
 		&v.StartsOn, &v.EndsOn, &v.NextOccurrenceOn, &v.LastSpawnedOn, &active,
+		&v.CompletedAt,
 		&v.CreatedAt, &v.UpdatedAt, &v.DeletedAt, &v.Rev)
 	if err != nil {
 		return model.Recurrence{}, notFoundOr(err, "scan recurrence")
 	}
 
 	v.Active = active != 0
+	v.State = model.DeriveRecurrenceState(v.Active, v.CompletedAt)
 
 	return v, nil
 }

@@ -120,6 +120,7 @@ and Control Center → `ios_widget`; dictation and Siri → `voice`; share exten
 ### Others
 
 **Project status** — `active`, `paused`, `done`, `archived`.
+**Recurrence state** — `active`, `paused`, `finished`. Derived, see §10.
 **Scopes** — `read`, `write`, plus `offline_access` at the authorization server only.
 
 ---
@@ -169,7 +170,7 @@ A spawned occurrence cannot be detached from its series.
 `sort_order` on a context and `lead_days` on a recurrence are `NOT NULL`. Sending
 `null` is a 422 naming the field, not a 500.
 
-### 4.7 Duplicate delegates are inevitable, and mergeable
+### 4.6 Duplicate delegates are inevitable, and mergeable
 
 `delegated_to` and the MCP `delegate_task` create a person by name, which is the
 right ergonomics for capture and guarantees "Marc", "marc" and "Marc D." accumulate.
@@ -182,7 +183,33 @@ tombstones the source. It returns `tasks_moved`, so a client can say "3 tasks mo
 to Marc" rather than reporting a silent success. Not reversible beyond re-delegating
 by hand.
 
-### 4.6 Limits
+### 4.7 Cancelled is closed, but not done
+
+Three ways a task stops being work, and they are deliberately distinct:
+
+| | Meaning | Record | Reversible |
+| --- | --- | --- | --- |
+| `done` | The work happened | `completed_at` | Reopen clears it |
+| `cancelled` | Decided not to do it | `cancelled_at` | Reopen clears it |
+| deleted | The record should not exist | `deleted_at` tombstone | `POST /v1/tasks/{id}/restore` |
+
+Consequences a client should honour:
+
+- Cancelled work is **not open**, so it appears in no brief bucket except
+  `cancelled_today`, and is excluded from the MCP `list_tasks` default.
+- Cancelled is **not progress**. The brief counts it in `cancelled_today`, apart
+  from `completed_today`, so "I closed six things" does not silently include four
+  you dropped.
+- Cancelling is **not deleting**. Prefer it when the user says they are not going to
+  do something but the decision is worth keeping; delete is for a record that should
+  never have existed. MCP has a `cancel_task` tool so a model reaches for the right
+  one.
+- `GET /v1/tasks` applies **no** default status filter, so a bare listing includes
+  both `done` and `cancelled`. Filter explicitly.
+
+---
+
+### 4.8 Limits
 
 Body 1 MiB, reachable only through `details`. Titles 500 characters. Page size 200.
 
@@ -505,6 +532,7 @@ Eight buckets, each sorted server-side:
 | `blocked` | status `blocked` | `updated_at` ASC |
 | `waiting_on` | status `delegated`, **grouped by person** | `due_on` ASC within a person, undated first; groups in first-seen order |
 | `completed_today` | done, completed on `date` | `completed_at` DESC |
+| `cancelled_today` | cancelled on `date` | `cancelled_at` DESC |
 
 "Open" means status in `todo`, `in_progress`, `blocked`, `delegated`.
 
@@ -548,9 +576,19 @@ Properties the UI must reflect:
   confusing field in the app; explain it with a live example.
 - **Catch-up is bounded to 7 days.** Two weeks away produces the last week of missed
   occurrences, not fourteen. Older ones are counted as missed and never appear.
-- **A series past `ends_on` or out of `COUNT` is deactivated, not deleted.** So
-  `active: false` means paused *or* finished — the two are not distinguished, which
-  is a known limitation.
+- **A series past `ends_on` or out of `COUNT` is deactivated, not deleted**, and
+  the spawner stamps `completed_at` when it does. So the three-way `state` is
+  derived: `active`, `paused` (a person turned it off, `completed_at` null) or
+  `finished` (it ran out, `completed_at` set). Filter with `?state=`.
+
+  Resuming a finished series is allowed but only does something if the rule changes
+  too: `active: true` clears the marker, the spawner re-evaluates on the same
+  request, and a spent rule is retired again immediately. Present `finished` as over,
+  not as paused.
+
+  Series inactive before this existed have a null `completed_at` and therefore read
+  as `paused` — the more forgiving reading, since it offers to resume rather than
+  declaring something over that may not be.
 - **`timezone` is per-series**, because `occurrence_on` is a plain date.
 - `next_occurrence_on` and `last_spawned_on` are read-only server state.
 
@@ -609,15 +647,11 @@ No server support. A design needing one of these must be flagged, not drawn.
 
 ## 13. Open questions
 
-1. **`active: false` conflates paused and finished** on a recurrence. A UI wanting
-   to distinguish "I paused this" from "this series ended" needs another column.
-2. **Project progress needs counting.** There is no aggregate endpoint, so
+1. **Project progress needs counting.** There is no aggregate endpoint, so
    `done/total` for a project means fetching its tasks. Deliberate: every syncing
    client already holds the rows and can count locally, so this only bites a client
    that does not sync.
-3. **Cancelled vs deleted** are distinct in the data but there is no UI convention
-   for cancelled yet.
-4. **No person aliases.** `merge` cleans up duplicates, but the next
+2. **No person aliases.** `merge` cleans up duplicates, but the next
    delegate-by-name can recreate them. An alias table would prevent recurrence.
-5. **Restore is tasks-only** by decision, not by limitation. If losing a context
+3. **Restore is tasks-only** by decision, not by limitation. If losing a context
    turns out to be a real accident, the same batch-id approach would extend.

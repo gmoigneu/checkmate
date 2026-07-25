@@ -870,11 +870,19 @@ paths:
         - name: context_id
           in: query
           schema: { type: string }
+        - name: state
+          in: query
+          description: |
+            The derived three-way state. Prefer this over `active`, which cannot
+            tell a paused series from a finished one.
+          schema:
+            type: string
+            enum: [active, paused, finished]
         - name: active
           in: query
           description: |
-            A series is deactivated when it passes `ends_on` or exhausts a
-            `COUNT=`, so `active: false` also means "finished", not only "paused".
+            The raw flag. False covers both paused and finished; use `state` to
+            distinguish them.
           schema: { type: boolean }
       responses:
         "200":
@@ -1901,8 +1909,31 @@ components:
         active:
           type: boolean
           description: |
-            False means paused **or finished** — a series is deactivated when it
-            passes `ends_on` or exhausts a `COUNT=`. The two are not distinguished.
+            The operational flag the spawner queries. False for both a paused and a
+            finished series, which is why `state` exists — read that instead.
+        completed_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+          readOnly: true
+          description: |
+            Set by the spawner when it retires a series, and only then. Pausing
+            leaves it null. Setting `active: true` clears it so the spawner
+            re-decides.
+        state:
+          type: string
+          enum: [active, paused, finished]
+          readOnly: true
+          description: |
+            Derived from `active` and `completed_at`, never stored and never
+            writable:
+
+            - `active` — running
+            - `paused` — a person turned it off; offer to resume
+            - `finished` — it reached `ends_on` or exhausted a `COUNT=`
+
+            Resuming a finished series only does something if the rule changes too:
+            `active: true` alone clears the marker, the spawner finds nothing left,
+            and it is retired again on the same request. A UI should therefore
+            present "finished" as over rather than as paused.
         created_at: { $ref: "#/components/schemas/Timestamp" }
         updated_at: { $ref: "#/components/schemas/Timestamp" }
         deleted_at:
@@ -1927,7 +1958,12 @@ components:
         starts_on: { $ref: "#/components/schemas/Date" }
         ends_on:
           oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }]
-        active: { type: ["boolean", "null"], default: true }
+        active:
+          type: ["boolean", "null"]
+          default: true
+          description: |
+            Start the series paused by passing false. `completed_at` and therefore
+            `state: finished` are the spawner's to set, never a client's.
 
     RecurrenceUpdate:
       type: object
@@ -1959,7 +1995,8 @@ components:
         **not** capped, so a total may exceed the length of its list.
       required:
         [overdue, due_today, planned, inbox, blocked, waiting_on, in_progress,
-         completed_today, planned_minutes, planned_without_estimate]
+         completed_today, cancelled_today, planned_minutes,
+         planned_without_estimate]
       properties:
         overdue: { type: integer }
         due_today: { type: integer }
@@ -1971,6 +2008,11 @@ components:
         waiting_on: { type: integer }
         in_progress: { type: integer }
         completed_today: { type: integer }
+        cancelled_today:
+          type: integer
+          description: |
+            Counted apart from `completed_today`: deciding against something is not
+            an accomplishment, but it is a decision worth surfacing.
         planned_minutes:
           type: integer
           description: |
@@ -1994,7 +2036,7 @@ components:
       type: object
       required:
         [date, timezone, overdue, due_today, planned, in_progress, inbox,
-         blocked, waiting_on, completed_today, totals]
+         blocked, waiting_on, completed_today, cancelled_today, totals]
       properties:
         date: { $ref: "#/components/schemas/Date" }
         timezone:
@@ -2038,6 +2080,14 @@ components:
         completed_today:
           type: array
           description: Sorted `completed_at` descending.
+          items: { $ref: "#/components/schemas/Task" }
+        cancelled_today:
+          type: array
+          description: |
+            Closed by deciding not to do it, sorted `cancelled_at` descending.
+            Listed rather than only counted because a cancelled task appears in no
+            other bucket, so this is the only way to answer "what did I decide
+            against today".
           items: { $ref: "#/components/schemas/Task" }
         totals: { $ref: "#/components/schemas/BriefTotals" }
 

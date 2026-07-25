@@ -73,11 +73,24 @@ type Recurrence struct {
 	EndsOn           *string `json:"ends_on"`
 	NextOccurrenceOn *string `json:"next_occurrence_on"`
 	LastSpawnedOn    *string `json:"last_spawned_on"`
-	Active           bool    `json:"active"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
-	DeletedAt        *string `json:"deleted_at,omitempty"`
-	Rev              int64   `json:"rev"`
+
+	// Active is the operational flag the spawner queries. It is false both for a
+	// series a person paused and for one that ran out, which is why State exists.
+	Active bool `json:"active"`
+
+	// CompletedAt is set by the spawner when it retires a series, and only then.
+	// Pausing leaves it null.
+	CompletedAt *string `json:"completed_at"`
+
+	// State is derived from Active and CompletedAt, never stored and never
+	// writable: "active", "paused" (a person turned it off) or "finished" (it
+	// reached its end date or exhausted a COUNT). Resuming a finished series only
+	// makes sense alongside changing the rule, so a UI can say so.
+	State     string  `json:"state"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
+	DeletedAt *string `json:"deleted_at,omitempty"`
+	Rev       int64   `json:"rev"`
 }
 
 // Task is the core entity (brief section C).
@@ -139,6 +152,29 @@ var ProjectStatuses = []string{"active", "paused", "done", "archived"}
 
 // TaskKinds is every value the tasks_with_kind view can derive.
 var TaskKinds = []string{"short", "long", "recurring", "delegated", "blocked"}
+
+// Recurrence states, derived rather than stored.
+const (
+	RecurrenceActive   = "active"
+	RecurrencePaused   = "paused"
+	RecurrenceFinished = "finished"
+)
+
+// RecurrenceStates is every value State can take, and every value the API accepts
+// as a filter.
+var RecurrenceStates = []string{RecurrenceActive, RecurrencePaused, RecurrenceFinished}
+
+// DeriveRecurrenceState resolves the stored pair into the state a person reads.
+func DeriveRecurrenceState(active bool, completedAt *string) string {
+	switch {
+	case active:
+		return RecurrenceActive
+	case completedAt != nil && *completedAt != "":
+		return RecurrenceFinished
+	default:
+		return RecurrencePaused
+	}
+}
 
 // Identity is the authenticated caller behind a request.
 //
