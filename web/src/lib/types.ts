@@ -8,6 +8,7 @@ export type TaskStatus =
 	| "cancelled";
 
 export type TaskKind = "short" | "long" | "blocked" | "delegated" | "recurring";
+export type TaskPriority = "urgent" | "high" | "medium" | "low";
 
 export interface Context {
 	id: string;
@@ -45,6 +46,7 @@ export interface Task {
 	title: string;
 	details: string | null;
 	status: TaskStatus;
+	priority: TaskPriority | null;
 	due_on: string | null;
 	planned_on: string | null;
 	estimate_minutes: number | null;

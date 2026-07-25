@@ -8,9 +8,9 @@ import (
 
 // Sorting on GET /v1/tasks.
 //
-// The default is newest-created-first, which the primary key provides for free.
-// Any other order needs a keyset cursor, because an offset drifts when rows change
-// between pages — which for a task list means quietly skipping or repeating a task.
+// The default is priority first, newest-created-first within each priority. Every
+// order uses a keyset cursor, because an offset drifts when rows change between
+// pages — which for a task list means quietly skipping or repeating a task.
 // The tests below care about two things: that the order is right, and that paging
 // under that order delivers every row exactly once.
 
@@ -34,10 +34,10 @@ func seedForSort(t *testing.T, h *harness, u testUser) string {
 	contextID := h.firstContextID(u)
 
 	for _, task := range []map[string]any{
-		{"title": "banana", "due_on": "2026-08-03", "estimate_minutes": 30},
-		{"title": "Apple", "due_on": "2026-08-01", "estimate_minutes": 90},
-		{"title": "cherry", "due_on": "2026-08-02"},
-		{"title": "date", "estimate_minutes": 15},
+		{"title": "banana", "due_on": "2026-08-03", "estimate_minutes": 30, "priority": "medium"},
+		{"title": "Apple", "due_on": "2026-08-01", "estimate_minutes": 90, "priority": "urgent"},
+		{"title": "cherry", "due_on": "2026-08-02", "priority": "low"},
+		{"title": "date", "estimate_minutes": 15, "priority": "high"},
 		{"title": "elderberry"},
 	} {
 		task["context_id"] = contextID
@@ -170,32 +170,58 @@ func TestTaskSortByEstimate(t *testing.T) {
 	}
 }
 
-func TestTaskSortByCreatedIsTheDefault(t *testing.T) {
+func TestTaskDefaultSortsByPriorityThenCreated(t *testing.T) {
 	h := newHarness(t)
 	u := h.user("you@example.com")
 
 	seedForSort(t, h, u)
 
-	unsorted := titlesOf(h.do(http.MethodGet, "/v1/tasks", u.Token, nil).
+	got := titlesOf(h.do(http.MethodGet, "/v1/tasks", u.Token, nil).
 		expect(http.StatusOK).list())
 
-	explicit := titlesOf(h.do(http.MethodGet, "/v1/tasks?sort=created_at&order=desc", u.Token, nil).
-		expect(http.StatusOK).list())
-
-	if fmt.Sprint(unsorted) != fmt.Sprint(explicit) {
-		t.Errorf("default order %v differs from created_at desc %v", unsorted, explicit)
+	want := []string{"Apple", "date", "banana", "cherry", "elderberry"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("default order = %v, want %v", got, want)
 	}
 
-	// Newest first, so the last one seeded leads.
-	if unsorted[0] != "elderberry" {
-		t.Errorf("default first = %q, want the newest task", unsorted[0])
+	h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
+		"title": "newer high", "context_id": h.firstContextID(u), "priority": "high",
+	}).expect(http.StatusCreated)
+
+	got = titlesOf(h.do(http.MethodGet, "/v1/tasks", u.Token, nil).
+		expect(http.StatusOK).list())
+	want = []string{"Apple", "newer high", "date", "banana", "cherry", "elderberry"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("default order with a priority tie = %v, want %v", got, want)
 	}
 
-	ascending := titlesOf(h.do(http.MethodGet, "/v1/tasks?sort=created_at&order=asc", u.Token, nil).
+	created := titlesOf(h.do(http.MethodGet, "/v1/tasks?sort=created_at&order=desc", u.Token, nil).
 		expect(http.StatusOK).list())
 
-	if ascending[0] != "banana" {
-		t.Errorf("created_at asc first = %q, want the oldest task", ascending[0])
+	if created[0] != "newer high" {
+		t.Errorf("created_at desc first = %q, want the newest task", created[0])
+	}
+
+	orderOnly := titlesOf(h.do(http.MethodGet, "/v1/tasks?order=asc", u.Token, nil).
+		expect(http.StatusOK).list())
+	if orderOnly[0] != "banana" {
+		t.Errorf("order=asc without sort first = %q, want the oldest task", orderOnly[0])
+	}
+}
+
+func TestTaskSortByPriorityCanReverse(t *testing.T) {
+	h := newHarness(t)
+	u := h.user("you@example.com")
+
+	seedForSort(t, h, u)
+
+	got := titlesOf(h.do(http.MethodGet,
+		"/v1/tasks?sort=priority&order=desc", u.Token, nil).
+		expect(http.StatusOK).list())
+
+	want := []string{"cherry", "banana", "date", "Apple", "elderberry"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("priority desc = %v, want %v", got, want)
 	}
 }
 
@@ -229,11 +255,15 @@ func TestSortedPaginationLosesNothing(t *testing.T) {
 			body["estimate_minutes"] = (i % 5) + 1
 		}
 
+		if i%5 != 4 {
+			body["priority"] = []string{"urgent", "high", "medium", "low"}[i%5]
+		}
+
 		h.do(http.MethodPost, "/v1/tasks", u.Token, body).expect(http.StatusCreated)
 	}
 
 	for _, sort := range []string{
-		"created_at", "updated_at", "due_on", "planned_on",
+		"priority", "created_at", "updated_at", "due_on", "planned_on",
 		"title", "estimate_minutes", "status",
 	} {
 		for _, order := range []string{"asc", "desc"} {
@@ -290,6 +320,49 @@ func TestSortedPaginationLosesNothing(t *testing.T) {
 			})
 		}
 	}
+
+	t.Run("default", func(t *testing.T) {
+		seen := map[string]bool{}
+		var paged []string
+		query := "/v1/tasks?limit=2"
+
+		for range 40 {
+			var body struct {
+				Data       []map[string]any `json:"data"`
+				NextCursor *string          `json:"next_cursor"`
+			}
+
+			h.do(http.MethodGet, query, u.Token, nil).
+				expect(http.StatusOK).decodeInto(&body)
+
+			for _, item := range body.Data {
+				id, _ := item["id"].(string)
+				if seen[id] {
+					t.Errorf("task %s was delivered twice", id)
+				}
+				seen[id] = true
+
+				title, _ := item["title"].(string)
+				paged = append(paged, title)
+			}
+
+			if body.NextCursor == nil {
+				break
+			}
+			query = "/v1/tasks?limit=2&cursor=" + *body.NextCursor
+		}
+
+		if len(seen) != total {
+			t.Fatalf("paging delivered %d of %d tasks", len(seen), total)
+		}
+
+		oneShot := titlesOf(h.do(http.MethodGet,
+			"/v1/tasks?limit=200", u.Token, nil).expect(http.StatusOK).list())
+		if fmt.Sprint(paged) != fmt.Sprint(oneShot) {
+			t.Errorf("paged default order differs from a single page\n paged: %v\n whole: %v",
+				paged, oneShot)
+		}
+	})
 }
 
 func TestSortRejectsUnknownValues(t *testing.T) {
@@ -297,7 +370,7 @@ func TestSortRejectsUnknownValues(t *testing.T) {
 	u := h.user("you@example.com")
 
 	for field, query := range map[string]string{
-		"sort":  "?sort=priority",
+		"sort":  "?sort=nonsense",
 		"order": "?order=sideways",
 	} {
 		res := h.do(http.MethodGet, "/v1/tasks"+query, u.Token, nil)

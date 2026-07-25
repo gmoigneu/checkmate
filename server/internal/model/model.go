@@ -106,6 +106,7 @@ type Task struct {
 	Title           string  `json:"title"`
 	Details         *string `json:"details"`
 	Status          string  `json:"status"`
+	Priority        *string `json:"priority"`
 	DueOn           *string `json:"due_on"`
 	PlannedOn       *string `json:"planned_on"`
 	EstimateMinutes *int64  `json:"estimate_minutes"`
@@ -140,6 +141,21 @@ const (
 var TaskStatuses = []string{
 	StatusInbox, StatusTodo, StatusInProgress, StatusBlocked,
 	StatusDelegated, StatusDone, StatusCancelled,
+}
+
+// Task priorities, from most to least important. A nil priority means the task
+// has not been prioritized.
+const (
+	PriorityUrgent = "urgent"
+	PriorityHigh   = "high"
+	PriorityMedium = "medium"
+	PriorityLow    = "low"
+)
+
+// TaskPriorities is every legal non-null task priority, matching the CHECK
+// constraint and ordered the same way as the default task listing.
+var TaskPriorities = []string{
+	PriorityUrgent, PriorityHigh, PriorityMedium, PriorityLow,
 }
 
 // CaptureMethods is every legal capture method, matching the CHECK constraint.

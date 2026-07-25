@@ -18,6 +18,7 @@ type taskCreateRequest struct {
 	Title           string  `json:"title"`
 	Details         *string `json:"details"`
 	Status          string  `json:"status"`
+	Priority        *string `json:"priority"`
 	DueOn           *string `json:"due_on"`
 	PlannedOn       *string `json:"planned_on"`
 	EstimateMinutes *int64  `json:"estimate_minutes"`
@@ -41,6 +42,7 @@ type taskUpdateRequest struct {
 	Title           patch.Field[string] `json:"title"`
 	Details         patch.Field[string] `json:"details"`
 	Status          patch.Field[string] `json:"status"`
+	Priority        patch.Field[string] `json:"priority"`
 	DueOn           patch.Field[string] `json:"due_on"`
 	PlannedOn       patch.Field[string] `json:"planned_on"`
 	EstimateMinutes patch.Field[int64]  `json:"estimate_minutes"`
@@ -61,6 +63,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	f := store.TaskFilter{
 		Status:        p.csv("status", model.TaskStatuses),
 		Kind:          p.csv("kind", model.TaskKinds),
+		Priority:      p.csv("priority", model.TaskPriorities),
 		DelegatedToID: p.str("delegated_to_id"),
 		RecurrenceID:  p.str("recurrence_id"),
 		PlannedOn:     p.date("planned_on"),
@@ -143,6 +146,13 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	title := requireTitle(v, req.Title)
 
 	checkEnum(v, "status", req.Status, model.TaskStatuses)
+	if req.Priority != nil {
+		if *req.Priority == "" {
+			v.add("priority", "cannot be empty")
+		} else {
+			checkEnum(v, "priority", *req.Priority, model.TaskPriorities)
+		}
+	}
 	checkEnum(v, "capture_method", req.CaptureMethod, model.CaptureMethods)
 	checkDate(v, "due_on", req.DueOn)
 	checkDate(v, "planned_on", req.PlannedOn)
@@ -183,6 +193,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Title:           title,
 		Details:         req.Details,
 		Status:          req.Status,
+		Priority:        req.Priority,
 		DueOn:           req.DueOn,
 		PlannedOn:       req.PlannedOn,
 		EstimateMinutes: req.EstimateMinutes,
@@ -216,6 +227,9 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 
 	req.Title = checkTitlePatch(v, req.Title)
 	checkEnumPatch(v, "status", req.Status, model.TaskStatuses)
+	if req.Priority.Set && !req.Priority.Null {
+		checkEnumPatch(v, "priority", req.Priority, model.TaskPriorities)
+	}
 	checkDatePatch(v, "due_on", req.DueOn)
 	checkDatePatch(v, "planned_on", req.PlannedOn)
 	checkPositivePatch(v, "estimate_minutes", req.EstimateMinutes)
@@ -235,6 +249,7 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 		Title:           req.Title,
 		Details:         req.Details,
 		Status:          req.Status,
+		Priority:        req.Priority,
 		DueOn:           req.DueOn,
 		PlannedOn:       req.PlannedOn,
 		EstimateMinutes: req.EstimateMinutes,
