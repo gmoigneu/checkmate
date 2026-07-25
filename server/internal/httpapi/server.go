@@ -29,6 +29,7 @@ type Server struct {
 	login   *login.Service
 	oauth   *oauth.Service
 	spawner *recurrence.Spawner
+	mcp     http.Handler
 	cfg     config.Config
 	log     *slog.Logger
 	version string
@@ -43,6 +44,7 @@ func New(
 	loginSvc *login.Service,
 	oauthSvc *oauth.Service,
 	spawner *recurrence.Spawner,
+	mcpHandler http.Handler,
 	cfg config.Config,
 	log *slog.Logger,
 	version string,
@@ -52,6 +54,7 @@ func New(
 		login:   loginSvc,
 		oauth:   oauthSvc,
 		spawner: spawner,
+		mcp:     mcpHandler,
 		cfg:     cfg,
 		log:     log,
 		version: version,
@@ -88,6 +91,15 @@ func (s *Server) Handler() http.Handler {
 	// runs behind optionalAuth rather than requireAuth.
 	mux.Handle("GET /oauth/authorize", s.optionalAuth(http.HandlerFunc(s.handleAuthorize)))
 	mux.Handle("POST /oauth/authorize", s.requireAuth(http.HandlerFunc(s.handleAuthorizeDecision)))
+
+	// The MCP endpoint carries its own authentication: the SDK's bearer middleware
+	// runs inside this handler, because it has to produce the WWW-Authenticate
+	// challenge and JSON-RPC error shapes the MCP spec prescribes rather than this
+	// API's own error envelope.
+	if s.mcp != nil {
+		mux.Handle("/mcp", s.mcp)
+		mux.Handle("/mcp/", s.mcp)
+	}
 
 	api := http.NewServeMux()
 

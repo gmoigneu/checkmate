@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nls/checkmate/server/internal/account"
+	"github.com/nls/checkmate/server/internal/database"
 	"github.com/nls/checkmate/server/internal/model"
 )
 
@@ -159,19 +161,20 @@ func (s *Store) RevokeToken(ctx context.Context, userID, tokenID string) error {
 // Go, keeping "is this token usable" a single condition in one place.
 func (s *Store) AuthenticateToken(ctx context.Context, secret string) (model.Identity, error) {
 	var (
-		ident  model.Identity
-		scopes string
+		ident     model.Identity
+		scopes    string
+		expiresAt sql.NullString
 	)
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT t.id, t.user_id, t.scopes, u.email, coalesce(u.name, u.email), u.timezone
+		SELECT t.id, t.user_id, t.scopes, t.expires_at, u.email, coalesce(u.name, u.email), u.timezone
 		FROM api_tokens t
 		JOIN users u ON u.id = t.user_id
 		WHERE t.token_hash = ?
 		  AND t.revoked_at IS NULL
 		  AND (t.expires_at IS NULL OR t.expires_at > `+nowExpr+`)`,
 		account.HashToken(secret),
-	).Scan(&ident.TokenID, &ident.UserID, &scopes, &ident.Email, &ident.Name, &ident.Timezone)
+	).Scan(&ident.TokenID, &ident.UserID, &scopes, &expiresAt, &ident.Email, &ident.Name, &ident.Timezone)
 
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -181,6 +184,7 @@ func (s *Store) AuthenticateToken(ctx context.Context, secret string) (model.Ide
 	}
 
 	ident.Scopes = strings.Fields(scopes)
+	ident.ExpiresAt = parseExpiry(expiresAt)
 
 	// Best effort: a failed bookkeeping write must not fail the request.
 	if _, err := s.db.ExecContext(ctx,
@@ -190,4 +194,22 @@ func (s *Store) AuthenticateToken(ctx context.Context, secret string) (model.Ide
 	}
 
 	return ident, nil
+}
+
+// parseExpiry converts a stored expiry to a time, reporting NeverExpires for a
+// credential that has none.
+func parseExpiry(stored sql.NullString) time.Time {
+	if !stored.Valid || stored.String == "" {
+		return model.NeverExpires
+	}
+
+	parsed, err := time.Parse(database.Timestamp, stored.String)
+	if err != nil {
+		// Unparseable means the row was hand-edited. The SQL filter already
+		// decided the token is live, so reporting no deadline is the honest
+		// answer rather than pretending to a precision we do not have.
+		return model.NeverExpires
+	}
+
+	return parsed
 }

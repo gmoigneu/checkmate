@@ -7,6 +7,8 @@
 // due date by a day.
 package model
 
+import "time"
+
 // Source is where a task came from (brief section A).
 type Source struct {
 	Key       string `json:"key"`
@@ -159,7 +161,20 @@ type Identity struct {
 	// device token is not.
 	ClientID string
 	Audience string
+
+	// ExpiresAt is when the presented credential stops working.
+	//
+	// Every code path that authenticates already filters expiry in SQL, so this
+	// is not load-bearing for access control. It exists because the MCP SDK's
+	// bearer middleware requires a non-zero expiry, and a device token that
+	// genuinely never expires still has to report something.
+	ExpiresAt time.Time
 }
+
+// NeverExpires is the expiry reported for a credential with no expiry set, such
+// as a device token created without one. Far enough out to be meaningless as a
+// deadline, concrete enough to satisfy callers that require a value.
+var NeverExpires = time.Now().AddDate(100, 0, 0)
 
 // ViaCookie reports whether the caller authenticated with a session cookie.
 func (i Identity) ViaCookie() bool { return i.SessionID != "" }

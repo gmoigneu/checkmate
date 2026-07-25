@@ -566,13 +566,14 @@ func (s *Store) AuthenticateAccessToken(
 	audienceAllowed []string,
 ) (model.Identity, error) {
 	var (
-		ident    model.Identity
-		scope    string
-		audience string
+		ident     model.Identity
+		scope     string
+		audience  string
+		expiresAt sql.NullString
 	)
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT t.id, t.user_id, t.scope, t.audience, t.client_id,
+		SELECT t.id, t.user_id, t.scope, t.audience, t.client_id, t.expires_at,
 		       u.email, coalesce(u.name, u.email), u.timezone
 		FROM oauth_access_tokens t
 		JOIN users u ON u.id = t.user_id
@@ -582,7 +583,7 @@ func (s *Store) AuthenticateAccessToken(
 		  AND t.expires_at > `+nowExpr+`
 		  AND g.revoked_at IS NULL`,
 		HashSecret(secret),
-	).Scan(&ident.TokenID, &ident.UserID, &scope, &audience, &ident.ClientID,
+	).Scan(&ident.TokenID, &ident.UserID, &scope, &audience, &ident.ClientID, &expiresAt,
 		&ident.Email, &ident.Name, &ident.Timezone)
 
 	switch {
@@ -598,6 +599,7 @@ func (s *Store) AuthenticateAccessToken(
 
 	ident.Scopes = strings.Fields(scope)
 	ident.Audience = audience
+	ident.ExpiresAt = parseExpiry(expiresAt)
 
 	return ident, nil
 }

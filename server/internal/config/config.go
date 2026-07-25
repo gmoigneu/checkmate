@@ -67,6 +67,14 @@ type Config struct {
 	// OAuthMaxDynamicClients caps open registration so an unauthenticated
 	// endpoint cannot be used to fill the database.
 	OAuthMaxDynamicClients int
+
+	// MCPEnabled serves the Model Context Protocol endpoint at /mcp.
+	MCPEnabled bool
+
+	// MCPAllowedOrigins restricts the Origin header on the MCP endpoint when
+	// non-empty. Empty accepts any origin; see the note in package mcpserver for
+	// why that is the default here.
+	MCPAllowedOrigins []string
 }
 
 // OIDCProvider is one federated identity provider's client credentials.
@@ -163,6 +171,16 @@ func Load() (Config, error) {
 
 	if cfg.OAuthMaxDynamicClients, err = envInt("CHECKMATE_OAUTH_MAX_DYNAMIC_CLIENTS", 200); err != nil {
 		return Config{}, err
+	}
+
+	if cfg.MCPEnabled, err = envBool("CHECKMATE_MCP_ENABLED", true); err != nil {
+		return Config{}, err
+	}
+
+	cfg.MCPAllowedOrigins = parseList(env("CHECKMATE_MCP_ALLOWED_ORIGINS", ""))
+
+	for i, origin := range cfg.MCPAllowedOrigins {
+		cfg.MCPAllowedOrigins[i] = strings.TrimRight(origin, "/")
 	}
 
 	return cfg, nil

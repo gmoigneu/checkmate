@@ -16,6 +16,7 @@ import (
 	"github.com/nls/checkmate/server/internal/config"
 	"github.com/nls/checkmate/server/internal/database"
 	"github.com/nls/checkmate/server/internal/httpapi"
+	"github.com/nls/checkmate/server/internal/mcpserver"
 	"github.com/nls/checkmate/server/internal/oauth"
 	"github.com/nls/checkmate/server/internal/recurrence"
 	"github.com/nls/checkmate/server/internal/store"
@@ -57,6 +58,7 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	st := store.New(db)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	oauthSvc := oauth.New(st, oauth.Config{
 		Issuer:                    testBaseURL,
@@ -77,16 +79,19 @@ func newHarness(t *testing.T) *harness {
 		SessionMaxLifetime: 24 * time.Hour,
 	}
 
+	spawner := recurrence.New(st, log)
+
 	// Discard logs so a failing test's output is only assertions. No login
 	// service: the OIDC round trip needs a real provider, so cookie-auth tests
 	// mint sessions through the store instead.
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-
 	return &harness{
-		t:      t,
-		server: httpapi.New(st, nil, oauthSvc, recurrence.New(st, log), cfg, log, "test").Handler(),
-		store:  st,
-		cfg:    cfg,
+		t: t,
+		server: httpapi.New(st, nil, oauthSvc, spawner, mcpserver.New(st, spawner, log, mcpserver.Options{
+			Audiences:           oauthSvc.AcceptedAudiences(),
+			ResourceMetadataURL: testBaseURL + "/.well-known/oauth-protected-resource",
+		}), cfg, log, "test").Handler(),
+		store: st,
+		cfg:   cfg,
 	}
 }
 

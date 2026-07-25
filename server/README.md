@@ -29,6 +29,7 @@ internal/account         user / context seeding, API token issuing
 internal/login           federated sign-in (OIDC client)
 internal/oauth           OAuth 2.1 authorization server, CIMD fetching
 internal/recurrence      RRULE evaluation and the occurrence spawner
+internal/mcpserver       the MCP endpoint: tool surface and auth bridge
 internal/httpapi         router, middleware, handlers, consent screen
 internal/patch           absent / null / set JSON field for PATCH
 internal/id              UUIDv7 generation
@@ -205,6 +206,8 @@ it.
 | `CHECKMATE_OAUTH_ENABLED` | `true` | The OAuth 2.1 authorization server for MCP clients |
 | `CHECKMATE_OAUTH_ALLOW_DCR` | `true` | RFC 7591 dynamic registration (deprecated by the MCP draft) |
 | `CHECKMATE_OAUTH_MAX_DYNAMIC_CLIENTS` | `200` | Cap on open registration |
+| `CHECKMATE_MCP_ENABLED` | `true` | Serve the MCP endpoint at `/mcp` |
+| `CHECKMATE_MCP_ALLOWED_ORIGINS` | empty | Restrict the `Origin` header on `/mcp`; empty accepts any |
 
 ### Setting up Google sign-in
 
@@ -454,15 +457,99 @@ success.
 to head to catch exactly this. Rebuilding a *leaf* table (as migration 00002 does
 to `api_tokens`) is safe, because nothing references it.
 
+## The MCP endpoint
+
+`POST /mcp` speaks the Model Context Protocol over Streamable HTTP, protocol
+revision **2025-11-25**. The protocol layer is the official
+[Go SDK](https://github.com/modelcontextprotocol/go-sdk); what is hand-written is
+the tool surface and how it maps onto the ownership and scope model the rest of
+the server already enforces.
+
+```sh
+curl -s localhost:8080/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq
+```
+
+Responses are `application/json` rather than an SSE stream. Clients must support
+both and nothing here streams — every tool is a handful of sqlite queries, so
+there are no progress notifications to interleave. The plain form is also the one
+a person can read with curl, which matters for a server you operate alone.
+
+The session is stateless: each request carries its own bearer token and the server
+holds no per-session state, so clients need not track an `Mcp-Session-Id`.
+
+### Tools
+
+| Tool | Scope | Notes |
+| --- | --- | --- |
+| `daily_brief` | read | The morning overview; the entry point for open-ended questions |
+| `list_tasks` | read | Filters for status, kind, context, project, dates, free text |
+| `get_task` | read | One task plus its subtasks |
+| `list_contexts` | read | Context ids are per-user and cannot be guessed |
+| `list_projects` / `list_people` / `list_recurrences` | read | |
+| `create_task` | write | Title is the only requirement; no context means capture to the inbox |
+| `update_task` | write | Omitted fields are left alone; `clear_*` flags null a date |
+| `complete_task` | write | Its own tool because finishing is the commonest single action |
+| `delete_task` | write | Tombstones the subtree and unblocks dependents |
+| `delegate_task` | write | Takes a person's *name*, creating them if new |
+| `triage_task` | write | Turns an inbox capture into a real task |
+| `create_project` / `create_recurrence` | write | A new recurrence spawns its occurrences immediately |
+
+Deliberately **not** exposed: creating or deleting contexts (four stable areas of
+your life; a model inventing a fifth is far more likely a mistake than an
+intention) and the sync feed (that is for device replication and would only flood
+a model's context).
+
+Every task an MCP client creates is stamped `capture_method: hermes`, so you can
+always tell which of your tasks an assistant put there.
+
+### Auth on the MCP endpoint
+
+Authentication runs through the SDK's bearer middleware with a verifier that calls
+the same store functions as a REST request, so a tool receives a user id the
+caller could not choose.
+
+- **OAuth access tokens** are audience-checked against this resource, which MCP
+  requires of a resource server.
+- **Device tokens** are also accepted. They are not audience-bound, but they are
+  issued by the account owner for this server and cannot be presented anywhere
+  else, which satisfies the requirement's intent — and it makes pointing a local
+  client at Checkmate a one-line config.
+- **Session cookies are refused.** Browsers attach cookies automatically, and this
+  is the one endpoint where that would turn a cross-site page into an
+  authenticated caller.
+
+Scope is enforced per tool. A write tool called with a read-only token answers
+**403 with `WWW-Authenticate: error="insufficient_scope"`** naming the scope
+needed, which is what drives the spec's step-up flow — the client can obtain a
+wider token and retry instead of treating it as a dead end. Doing that means
+peeking at the JSON-RPC body before the SDK reads it; the alternative, a tool-level
+error, would tell the model it failed but not tell the client how to fix it.
+
+### Origin validation: a deliberate deviation
+
+The transport spec says a server **MUST** validate `Origin`. That requirement
+targets local servers with no authentication, where a web page could drive one
+through the user's browser. It does not apply here: the only accepted credential
+is a bearer token, which no browser attaches by itself, and cookies are refused.
+Rejecting a foreign `Origin` outright would break legitimate browser-hosted MCP
+clients that send their own.
+
+So the check is an opt-in allowlist — `CHECKMATE_MCP_ALLOWED_ORIGINS` empty means
+any origin, set makes it strict. When it does reject, it answers 403 with an
+id-less JSON-RPC error as the spec prescribes. **This is the one place the
+implementation knowingly reads a MUST as not applicable**; set the allowlist if
+you disagree.
+
 ## Not built yet
 
-**The MCP protocol endpoint itself.** The OAuth layer an MCP client needs to
-authenticate is complete and tested, but `/mcp` — the JSON-RPC surface with
-`tools/list` and `tools/call` — does not exist. A client can obtain a valid
-audience-bound token and then has nothing to call with it. The resource
-identifier and its metadata document are already in place for it.
-
-Also outstanding:
+- **Resources and prompts.** Only the `tools` capability is declared. Prompts
+  ("run my weekly review") would be a natural next addition.
+- **Server-initiated messages.** `GET /mcp` for a server→client SSE stream is not
+  offered, because nothing here has anything to push.
 
 - **Apple sign-in.** The OIDC layer is provider-agnostic; only Google is wired.
 - **The Tanstack frontend**, to be embedded via `embed.FS`.

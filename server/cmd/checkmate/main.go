@@ -24,6 +24,7 @@ import (
 	"github.com/nls/checkmate/server/internal/database"
 	"github.com/nls/checkmate/server/internal/httpapi"
 	"github.com/nls/checkmate/server/internal/login"
+	"github.com/nls/checkmate/server/internal/mcpserver"
 	"github.com/nls/checkmate/server/internal/oauth"
 	"github.com/nls/checkmate/server/internal/recurrence"
 	"github.com/nls/checkmate/server/internal/store"
@@ -66,6 +67,8 @@ Environment:
   CHECKMATE_OAUTH_ENABLED        OAuth 2.1 server for MCP  (default true)
   CHECKMATE_OAUTH_ALLOW_DCR      RFC 7591 registration     (default true)
   CHECKMATE_OAUTH_MAX_DYNAMIC_CLIENTS  cap on open registration (default 200)
+  CHECKMATE_MCP_ENABLED          MCP endpoint at /mcp      (default true)
+  CHECKMATE_MCP_ALLOWED_ORIGINS  restrict Origin on /mcp   (default: any)
 `
 
 func main() {
@@ -190,9 +193,29 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	spawner := recurrence.New(st, log)
 	go spawnLoop(ctx, spawner, log)
 
+	var mcpHandler http.Handler
+
+	if cfg.MCPEnabled {
+		audiences := []string{cfg.BaseURL, cfg.MCPResource()}
+		if oauthSvc != nil {
+			audiences = oauthSvc.AcceptedAudiences()
+		}
+
+		mcpHandler = mcpserver.New(st, spawner, log, mcpserver.Options{
+			Audiences:           audiences,
+			ResourceMetadataURL: cfg.BaseURL + "/.well-known/oauth-protected-resource",
+			AllowedOrigins:      cfg.MCPAllowedOrigins,
+		})
+
+		log.Info("mcp endpoint ready",
+			slog.String("endpoint", cfg.MCPResource()),
+			slog.String("protocol", "streamable-http"),
+			slog.Bool("origin_allowlist", len(cfg.MCPAllowedOrigins) > 0))
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(st, loginSvc, oauthSvc, spawner, cfg, log, version).Handler(),
+		Handler:           httpapi.New(st, loginSvc, oauthSvc, spawner, mcpHandler, cfg, log, version).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
