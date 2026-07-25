@@ -10,16 +10,16 @@ ALTER TABLE tasks ADD COLUMN priority TEXT
     CHECK (priority IN ('urgent', 'high', 'medium', 'low'));
 
 -- Match the default task listing: ranked priorities first, unprioritized work
--- last, and newest first within each rank.
+-- last, and newest first within each rank. This rank expression is duplicated by
+-- priorityRankExpr in tasksort.go; keep the two immutable definitions aligned.
 CREATE INDEX tasks_user_priority_idx ON tasks (
     user_id,
-    CASE priority
+    coalesce(CASE priority
         WHEN 'urgent' THEN 0
         WHEN 'high' THEN 1
         WHEN 'medium' THEN 2
         WHEN 'low' THEN 3
-        ELSE 4
-    END,
+    END, 4),
     id DESC
 ) WHERE deleted_at IS NULL;
 

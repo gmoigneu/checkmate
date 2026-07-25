@@ -301,7 +301,8 @@ paths:
           description: |
             Direction. Defaults to `desc` for `created_at` — newest first, which is
             what a task list wants — and `asc` for every other field, so the
-            soonest date or shortest estimate leads.
+            soonest date or shortest estimate leads. For backward compatibility,
+            supplying `order` without `sort` explicitly sorts by `created_at`.
           schema:
             type: string
             enum: [asc, desc]

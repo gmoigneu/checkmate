@@ -264,6 +264,9 @@ the editor.
 | `estimate_minutes` | `asc` | |
 | `updated_at`, `status` | `asc` | |
 
+For backward compatibility, `order` without `sort` explicitly sorts by
+`created_at`; it does not modify the composite priority-first default.
+
 **Missing values always sort last**, in both directions. "Sorted by due date"
 opening with undated tasks would be useless whichever way the dates run.
 
@@ -274,6 +277,10 @@ pages — with an offset, inserting a task mid-walk silently skips or repeats on
 issued it**. Changing `sort` or `order` mid-walk is a 422, because the same position
 means nothing under a different ordering: restart the walk. The same cursor
 mechanism is used by every other collection, keyed on id.
+
+A deployment that changes the default ordering can likewise invalidate an in-flight
+default cursor. On a cursor 422, restart from the first page; attempting to reinterpret
+the old position under a new order would silently skip or repeat tasks.
 
 ### 5.3 The inbox has two meanings, deliberately reconciled
 

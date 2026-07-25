@@ -197,6 +197,8 @@ Returns eight lists plus totals:
 > `estimate_minutes`, `completed_at`, `status`; `order` is `asc`/`desc`.
 > Direction defaults to `desc` for `created_at` and `asc` for everything else.
 > **Rows with no value for the sort column always sort last, in both directions.**
+> For backward compatibility, `order` without `sort` explicitly selects
+> `created_at`; it does not modify the composite default.
 >
 > Pagination under a sort is keyset rather than offset, so it does not drift when
 > rows change between pages. `next_cursor` is opaque and **bound to the sort that

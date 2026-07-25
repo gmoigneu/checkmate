@@ -97,13 +97,20 @@ type sortPlan struct {
 // both directions.
 func resolveSort(field, order string) sortPlan {
 	if field == "" {
-		return sortPlan{
-			signature: "priority:asc,created_at:desc",
-			keyExpr:   priorityKeyExpr(true),
-			dir:       "ASC",
-			idDir:     "DESC",
-			numeric:   true,
+		if order == "" {
+			return sortPlan{
+				signature: "priority:asc,created_at:desc",
+				keyExpr:   priorityKeyExpr(true),
+				dir:       "ASC",
+				idDir:     "DESC",
+				numeric:   true,
+			}
 		}
+
+		// Before priority became the composite default, an order without a sort
+		// controlled created_at. Keep honoring that accepted request shape rather
+		// than silently discarding a client's direction.
+		field = string(SortCreatedAt)
 	}
 
 	if order == "" {
@@ -171,24 +178,24 @@ func resolveSort(field, order string) sortPlan {
 	return plan
 }
 
-// priorityKeyExpr maps the vocabulary to an integer rank. The null sentinel is
-// chosen so missing priority stays last in either direction.
+// priorityRankExpr maps every non-null priority to its integer rank. The
+// migration's matching index repeats this immutable SQL expression because a
+// migration cannot import Go constants.
+const priorityRankExpr = `CASE priority
+	WHEN 'urgent' THEN 0
+	WHEN 'high' THEN 1
+	WHEN 'medium' THEN 2
+	WHEN 'low' THEN 3
+	END`
+
+// priorityKeyExpr adds a direction-specific null sentinel so an unprioritized
+// task stays last in either direction.
 func priorityKeyExpr(asc bool) string {
 	if asc {
-		return `CASE priority
-			WHEN 'urgent' THEN 0
-			WHEN 'high' THEN 1
-			WHEN 'medium' THEN 2
-			WHEN 'low' THEN 3
-			ELSE 4 END`
+		return "coalesce(" + priorityRankExpr + ", 4)"
 	}
 
-	return `CASE priority
-		WHEN 'urgent' THEN 0
-		WHEN 'high' THEN 1
-		WHEN 'medium' THEN 2
-		WHEN 'low' THEN 3
-		ELSE -1 END`
+	return "coalesce(" + priorityRankExpr + ", -1)"
 }
 
 // dateKeyExpr coalesces a nullable date or timestamp so missing values sort last.

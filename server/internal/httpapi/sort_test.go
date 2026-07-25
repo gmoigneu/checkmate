@@ -201,6 +201,12 @@ func TestTaskDefaultSortsByPriorityThenCreated(t *testing.T) {
 	if created[0] != "newer high" {
 		t.Errorf("created_at desc first = %q, want the newest task", created[0])
 	}
+
+	orderOnly := titlesOf(h.do(http.MethodGet, "/v1/tasks?order=asc", u.Token, nil).
+		expect(http.StatusOK).list())
+	if orderOnly[0] != "banana" {
+		t.Errorf("order=asc without sort first = %q, want the oldest task", orderOnly[0])
+	}
 }
 
 func TestTaskSortByPriorityCanReverse(t *testing.T) {
