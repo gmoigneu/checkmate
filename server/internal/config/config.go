@@ -43,14 +43,6 @@ type Config struct {
 	// SessionMaxLifetime is the ceiling an active session cannot slide past.
 	SessionMaxLifetime time.Duration
 
-	// AllowedEmails gates account provisioning from a federated login.
-	//
-	// Empty means no new accounts: existing users can sign in, strangers cannot
-	// create anything. That is the safe default for a server on the public
-	// internet, where "sign in with Google" would otherwise let anyone with a
-	// Google account onto it.
-	AllowedEmails []string
-
 	// Google holds the OIDC client credentials. Login is offered only when both
 	// the id and the secret are set.
 	Google OIDCProvider
@@ -153,8 +145,6 @@ func Load() (Config, error) {
 			"config: CHECKMATE_BASE_URL must be https in production, got %q", cfg.BaseURL)
 	}
 
-	cfg.AllowedEmails = parseList(env("CHECKMATE_ALLOWED_EMAILS", ""))
-
 	cfg.Google = OIDCProvider{
 		Issuer:       env("CHECKMATE_GOOGLE_ISSUER", "https://accounts.google.com"),
 		ClientID:     env("CHECKMATE_GOOGLE_CLIENT_ID", ""),
@@ -188,30 +178,6 @@ func Load() (Config, error) {
 
 // MCPResource is the canonical RFC 8707 resource identifier for the MCP endpoint.
 func (c Config) MCPResource() string { return c.BaseURL + "/mcp" }
-
-// EmailAllowed reports whether an address may have an account provisioned for it.
-func (c Config) EmailAllowed(email string) bool {
-	email = strings.ToLower(strings.TrimSpace(email))
-
-	for _, allowed := range c.AllowedEmails {
-		allowed = strings.ToLower(allowed)
-
-		// A leading "@domain.com" entry admits everyone at that domain.
-		if strings.HasPrefix(allowed, "@") {
-			if strings.HasSuffix(email, allowed) {
-				return true
-			}
-
-			continue
-		}
-
-		if allowed == email {
-			return true
-		}
-	}
-
-	return false
-}
 
 // defaultBaseURL guesses a development origin from the listen address.
 func defaultBaseURL(addr string) string {

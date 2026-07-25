@@ -1,9 +1,8 @@
 // Package login runs the federated (OIDC) sign-in dance.
 //
 // Google authenticates the human; Checkmate issues its own session. Nothing from
-// the provider is trusted beyond the verified id token, and account creation is
-// gated by an allowlist so a server on the public internet does not hand an
-// account to everyone with a Google account.
+// the provider is trusted beyond the verified id token. A verified identity gets
+// a Checkmate account on its first successful sign-in.
 package login
 
 import (
@@ -27,9 +26,6 @@ import (
 
 // flowTTL bounds how long a login may sit half-finished.
 const flowTTL = 15 * time.Minute
-
-// ErrNotAllowed means the address has no account and is not on the allowlist.
-var ErrNotAllowed = errors.New("login: this address is not allowed to sign in")
 
 // ErrEmailUnverified means the provider did not vouch for the address.
 var ErrEmailUnverified = errors.New("login: the provider did not verify this email address")
@@ -159,7 +155,7 @@ type Result struct {
 }
 
 // Complete verifies the callback and resolves it to a Checkmate user, creating
-// one if the address is allowed.
+// one when its identity provider has verified its email address.
 func (s *Service) Complete(ctx context.Context, state, code string) (Result, error) {
 	// Consuming the flow first makes the callback single-use even if what
 	// follows fails, so a leaked callback URL cannot be retried.
@@ -273,12 +269,6 @@ func (s *Service) resolveUser(
 		return userID, false, nil
 	case !errors.Is(err, store.ErrNotFound):
 		return "", false, err
-	}
-
-	// Nobody here yet. An empty allowlist means no provisioning at all, which
-	// keeps a fresh public deployment closed until an address is added.
-	if !s.cfg.EmailAllowed(email) {
-		return "", false, ErrNotAllowed
 	}
 
 	displayName := strings.TrimSpace(name)

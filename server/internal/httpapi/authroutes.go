@@ -99,11 +99,6 @@ func (s *Server) writeLoginError(w http.ResponseWriter, r *http.Request, err err
 		s.writeError(w, r, http.StatusBadRequest,
 			"this sign-in link has expired or was already used; please start again")
 
-	case errors.Is(err, login.ErrNotAllowed):
-		s.log.Warn("sign-in refused: address not on the allowlist")
-		s.writeError(w, r, http.StatusForbidden,
-			"this address does not have a Checkmate account")
-
 	case errors.Is(err, login.ErrEmailUnverified):
 		s.writeError(w, r, http.StatusForbidden,
 			"the identity provider did not verify this email address")

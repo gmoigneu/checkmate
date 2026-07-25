@@ -59,9 +59,6 @@ Environment:
   CHECKMATE_SECURE_COOKIES       Secure flag on cookies    (default: not in dev)
   CHECKMATE_SESSION_IDLE_TIMEOUT sliding session expiry    (default 336h)
   CHECKMATE_SESSION_MAX_LIFETIME hard session ceiling      (default 2160h)
-  CHECKMATE_ALLOWED_EMAILS       comma-separated addresses or @domains that may
-                                 have an account provisioned by sign-in.
-                                 EMPTY MEANS NO NEW ACCOUNTS.
   CHECKMATE_GOOGLE_CLIENT_ID     Google OAuth client id
   CHECKMATE_GOOGLE_CLIENT_SECRET Google OAuth client secret
   CHECKMATE_DEFAULT_TIMEZONE     zone for new accounts     (default UTC)
@@ -152,10 +149,6 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 				slog.String("redirect_uri", login.RedirectURI(cfg.BaseURL, provider)))
 		}
 
-		if len(cfg.AllowedEmails) == 0 {
-			log.Warn("no CHECKMATE_ALLOWED_EMAILS set: existing users can sign in, " +
-				"but no new accounts will be provisioned")
-		}
 	} else {
 		log.Info("no sign-in provider configured; bearer tokens are the only credential")
 	}

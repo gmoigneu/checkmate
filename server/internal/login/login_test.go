@@ -1,10 +1,15 @@
-package login_test
+package login
 
 import (
+	"context"
+	"errors"
+	"path/filepath"
 	"testing"
 
+	"github.com/nls/checkmate/server/internal/account"
 	"github.com/nls/checkmate/server/internal/config"
-	"github.com/nls/checkmate/server/internal/login"
+	"github.com/nls/checkmate/server/internal/database"
+	"github.com/nls/checkmate/server/internal/store"
 )
 
 // TestSafeRedirect covers the open-redirect surface: ?redirect_to= is attacker
@@ -33,60 +38,81 @@ func TestSafeRedirect(t *testing.T) {
 	}
 
 	for input, want := range cases {
-		if got := login.SafeRedirect(input); got != want {
+		if got := SafeRedirect(input); got != want {
 			t.Errorf("SafeRedirect(%q) = %q, want %q", input, got, want)
 		}
 	}
 }
 
-// TestEmailAllowed pins the provisioning gate. An empty allowlist must admit
-// nobody: the server is on the public internet and "sign in with Google" would
-// otherwise hand an account to anyone who has one.
-func TestEmailAllowed(t *testing.T) {
-	t.Run("empty allowlist admits nobody", func(t *testing.T) {
-		cfg := config.Config{}
+func TestResolveUserProvisionsVerifiedIdentity(t *testing.T) {
+	svc, st := newTestService(t)
+	ctx := context.Background()
 
-		for _, email := range []string{"you@example.com", "anyone@gmail.com", ""} {
-			if cfg.EmailAllowed(email) {
-				t.Errorf("EmailAllowed(%q) = true with an empty allowlist, want false", email)
-			}
-		}
-	})
+	userID, created, err := svc.resolveUser(
+		ctx, "google", "google-subject", "person@example.com", true, "Person Example")
+	if err != nil {
+		t.Fatalf("resolve user: %v", err)
+	}
 
-	t.Run("exact addresses", func(t *testing.T) {
-		cfg := config.Config{AllowedEmails: []string{"you@example.com", "other@example.org"}}
+	if !created {
+		t.Error("created = false, want true")
+	}
 
-		for email, want := range map[string]bool{
-			"you@example.com":           true,
-			"YOU@EXAMPLE.COM":           true, // addresses compare case-insensitively
-			"  you@example.com":         true, // and are trimmed
-			"other@example.org":         true,
-			"nope@example.com":          false,
-			"you@example.com.evil.test": false,
-			"":                          false,
-		} {
-			if got := cfg.EmailAllowed(email); got != want {
-				t.Errorf("EmailAllowed(%q) = %v, want %v", email, got, want)
-			}
-		}
-	})
+	if userID == "" {
+		t.Fatal("user ID is empty")
+	}
 
-	t.Run("domain entries", func(t *testing.T) {
-		cfg := config.Config{AllowedEmails: []string{"@example.com"}}
+	linkedUserID, err := st.FindUserByOIDCSubject(ctx, "google", "google-subject")
+	if err != nil {
+		t.Fatalf("find linked identity: %v", err)
+	}
 
-		for email, want := range map[string]bool{
-			"anyone@example.com":  true,
-			"someone@example.com": true,
-			"anyone@example.org":  false,
-			// Must not match a domain that merely ends with the allowed one.
-			"anyone@notexample.com": false,
-			"anyone@evil.com":       false,
-		} {
-			if got := cfg.EmailAllowed(email); got != want {
-				t.Errorf("EmailAllowed(%q) = %v, want %v", email, got, want)
-			}
-		}
-	})
+	if linkedUserID != userID {
+		t.Errorf("linked user ID = %q, want %q", linkedUserID, userID)
+	}
+
+	var contexts int
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT count(*) FROM contexts WHERE user_id = ?`, userID).Scan(&contexts); err != nil {
+		t.Fatalf("count default contexts: %v", err)
+	}
+
+	if contexts != len(account.DefaultContexts) {
+		t.Errorf("default contexts = %d, want %d", contexts, len(account.DefaultContexts))
+	}
+
+	gotUserID, created, err := svc.resolveUser(
+		ctx, "google", "google-subject", "person@example.com", true, "Renamed Person")
+	if err != nil {
+		t.Fatalf("resolve linked user: %v", err)
+	}
+
+	if created {
+		t.Error("created = true for linked identity, want false")
+	}
+
+	if gotUserID != userID {
+		t.Errorf("linked user ID = %q, want %q", gotUserID, userID)
+	}
+}
+
+func TestResolveUserRejectsUnverifiedEmail(t *testing.T) {
+	svc, st := newTestService(t)
+
+	_, _, err := svc.resolveUser(
+		context.Background(), "google", "google-subject", "person@example.com", false, "Person Example")
+	if !errors.Is(err, ErrEmailUnverified) {
+		t.Fatalf("resolve user error = %v, want ErrEmailUnverified", err)
+	}
+
+	var users int
+	if err := st.DB().QueryRow(`SELECT count(*) FROM users`).Scan(&users); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+
+	if users != 0 {
+		t.Errorf("users = %d, want 0", users)
+	}
 }
 
 func TestRedirectURI(t *testing.T) {
@@ -97,8 +123,27 @@ func TestRedirectURI(t *testing.T) {
 	}
 
 	for baseURL, want := range cases {
-		if got := login.RedirectURI(baseURL, "google"); got != want {
+		if got := RedirectURI(baseURL, "google"); got != want {
 			t.Errorf("RedirectURI(%q) = %q, want %q", baseURL, got, want)
 		}
 	}
+}
+
+func newTestService(t *testing.T) (*Service, *store.Store) {
+	t.Helper()
+
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+
+	t.Cleanup(func() { _ = db.Close() })
+
+	if err := database.Migrate(ctx, db, nil); err != nil {
+		t.Fatalf("migrate database: %v", err)
+	}
+
+	st := store.New(db)
+	return &Service{store: st, cfg: config.Config{}}, st
 }
