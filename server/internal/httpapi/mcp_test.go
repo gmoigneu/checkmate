@@ -408,8 +408,8 @@ func TestMCPTaskLifecycle(t *testing.T) {
 	contexts := structured(t, h.callTool(u.Token, "list_contexts", map[string]any{}))
 
 	list, _ := contexts["contexts"].([]any)
-	if len(list) != 4 {
-		t.Fatalf("contexts = %d, want the 4 seeded", len(list))
+	if len(list) != 1 {
+		t.Fatalf("contexts = %d, want the fixture context", len(list))
 	}
 
 	first, _ := list[0].(map[string]any)

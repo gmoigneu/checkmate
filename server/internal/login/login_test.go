@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nls/checkmate/server/internal/account"
 	"github.com/nls/checkmate/server/internal/config"
 	"github.com/nls/checkmate/server/internal/database"
 	"github.com/nls/checkmate/server/internal/store"
@@ -74,11 +73,11 @@ func TestResolveUserProvisionsVerifiedIdentity(t *testing.T) {
 	var contexts int
 	if err := st.DB().QueryRowContext(ctx,
 		`SELECT count(*) FROM contexts WHERE user_id = ?`, userID).Scan(&contexts); err != nil {
-		t.Fatalf("count default contexts: %v", err)
+		t.Fatalf("count contexts: %v", err)
 	}
 
-	if contexts != len(account.DefaultContexts) {
-		t.Errorf("default contexts = %d, want %d", contexts, len(account.DefaultContexts))
+	if contexts != 0 {
+		t.Errorf("contexts = %d, want 0", contexts)
 	}
 
 	gotUserID, created, err := svc.resolveUser(

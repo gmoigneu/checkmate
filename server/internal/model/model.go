@@ -16,7 +16,7 @@ type Source struct {
 	SortOrder int64  `json:"sort_order"`
 }
 
-// Context is a top-level bucket: Upsun, Personal, Gaal, Arkea.
+// Context is a top-level bucket for a user's work.
 type Context struct {
 	ID         string  `json:"id"`
 	Name       string  `json:"name"`

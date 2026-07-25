@@ -50,17 +50,15 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatalf("create user: %v", err)
 	}
 
-	var contextID string
-	if err := db.QueryRow(
-		`SELECT id FROM contexts WHERE user_id = ? ORDER BY sort_order LIMIT 1`, user.ID,
-	).Scan(&contextID); err != nil {
-		t.Fatalf("read seeded context: %v", err)
+	createdContext, err := st.CreateContext(ctx, user.ID, store.ContextCreate{Name: "Recurrence test"})
+	if err != nil {
+		t.Fatalf("create fixture context: %v", err)
 	}
 
 	spawner := New(st, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	spawner.now = func() time.Time { return fixedNow }
 
-	return &fixture{t: t, store: st, spawner: spawner, userID: user.ID, ctxID: contextID}
+	return &fixture{t: t, store: st, spawner: spawner, userID: user.ID, ctxID: createdContext.ID}
 }
 
 // recurrenceOpts are the knobs a test varies.

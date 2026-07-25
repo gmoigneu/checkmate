@@ -410,17 +410,6 @@ func userCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []st
 	}
 
 	fmt.Printf("created user %s <%s>\n", u.ID, u.Email)
-	fmt.Printf("seeded contexts: ")
-
-	for i, c := range account.DefaultContexts {
-		if i > 0 {
-			fmt.Print(", ")
-		}
-
-		fmt.Print(c.Name)
-	}
-
-	fmt.Println()
 
 	if *tokenName != "" {
 		secret, err := account.CreateToken(ctx, db, u.ID, *tokenName, "")

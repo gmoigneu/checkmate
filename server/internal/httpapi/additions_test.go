@@ -22,7 +22,7 @@ func TestUpdateProfileTimezone(t *testing.T) {
 
 	before := h.do(http.MethodGet, "/v1/me", u.Token, nil).expect(http.StatusOK).decode()
 	if before["timezone"] != "UTC" {
-		t.Fatalf("timezone = %v, want the seeded UTC", before["timezone"])
+		t.Fatalf("timezone = %v, want the default UTC", before["timezone"])
 	}
 
 	after := h.do(http.MethodPatch, "/v1/me", u.Token, map[string]any{
@@ -195,17 +195,6 @@ func TestContextColorValidation(t *testing.T) {
 				t.Errorf("error names %v, want an entry for color", res.fields())
 			}
 		})
-	}
-
-	// The seeded contexts must already satisfy the rule, or the app ships data its
-	// own API would reject. Checked before anything is cleared below.
-	for _, item := range h.do(http.MethodGet, "/v1/contexts", u.Token, nil).
-		expect(http.StatusOK).list() {
-		colour, _ := item["color"].(string)
-		if len(colour) != 7 || colour[0] != '#' {
-			t.Errorf("seeded context %v has colour %q, which the API would now reject",
-				item["name"], colour)
-		}
 	}
 
 	contextID, _ := created["id"].(string)

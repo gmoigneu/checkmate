@@ -78,8 +78,7 @@ INSERT INTO sources (key, label, sort_order) VALUES
     ('phone',       'Phone',       60);
 
 -- ---------------------------------------------------------------------------
--- Contexts: Upsun / Personal / Gaal / Arkea. Seeded per user at signup, not
--- here, since they are user data.
+-- Contexts are per-user data and are created by the user, not seeded here.
 -- ---------------------------------------------------------------------------
 CREATE TABLE contexts (
     id          TEXT PRIMARY KEY,

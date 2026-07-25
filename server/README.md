@@ -12,9 +12,8 @@ make run
 curl -s localhost:8080/healthz
 ```
 
-`user create` seeds the four contexts from the brief (Upsun, Personal, Gaal,
-Arkea) and, with `-token`, prints an API token once. Only the token's SHA-256 is
-stored, so copy it there and then.
+With `-token`, `user create` prints an API token once. Only the token's SHA-256
+is stored, so copy it there and then.
 
 ## Layout
 
@@ -25,7 +24,7 @@ internal/database        sqlite connection, embedded goose migrations
 internal/database/migrations
 internal/model           domain types shared by store and HTTP
 internal/store           all SQL; every method takes a user id and scopes by it
-internal/account         user / context seeding, API token issuing
+internal/account         user and API token issuing
 internal/login           federated sign-in (OIDC client)
 internal/oauth           OAuth 2.1 authorization server, CIMD fetching
 internal/recurrence      RRULE evaluation and the occurrence spawner
@@ -48,7 +47,7 @@ internal/id              UUIDv7 generation
 
 Four axes, kept deliberately separate:
 
-- **context** — Upsun / Personal / Gaal / Arkea. The bucket a task belongs to.
+- **context** — a top-level bucket a task belongs to.
 - **source** — where the task came from: self, email, slack, google_chat,
   meeting, phone. A shared lookup, not per-context, because the same names
   repeat under every context.
