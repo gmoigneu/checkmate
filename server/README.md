@@ -28,7 +28,7 @@ internal/store           all SQL; every method takes a user id and scopes by it
 internal/account         user / context seeding, API token issuing
 internal/login           federated sign-in (OIDC client)
 internal/oauth           OAuth 2.1 authorization server, CIMD fetching
-internal/recurrence       RRULE evaluation and the occurrence spawner
+internal/recurrence      RRULE evaluation and the occurrence spawner
 internal/httpapi         router, middleware, handlers, consent screen
 internal/patch           absent / null / set JSON field for PATCH
 internal/id              UUIDv7 generation
