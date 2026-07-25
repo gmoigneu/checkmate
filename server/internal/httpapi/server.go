@@ -18,6 +18,7 @@ import (
 
 	"github.com/nls/checkmate/server/internal/config"
 	"github.com/nls/checkmate/server/internal/login"
+	"github.com/nls/checkmate/server/internal/oauth"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
@@ -25,6 +26,7 @@ import (
 type Server struct {
 	store   *store.Store
 	login   *login.Service
+	oauth   *oauth.Service
 	cfg     config.Config
 	log     *slog.Logger
 	version string
@@ -32,15 +34,24 @@ type Server struct {
 
 // New builds a Server. loginSvc may be nil when no identity provider is
 // configured, in which case the sign-in routes report 501 and bearer tokens
-// remain the only way in.
+// remain the only way in. oauthSvc may be nil to disable the authorization
+// server entirely.
 func New(
 	st *store.Store,
 	loginSvc *login.Service,
+	oauthSvc *oauth.Service,
 	cfg config.Config,
 	log *slog.Logger,
 	version string,
 ) *Server {
-	return &Server{store: st, login: loginSvc, cfg: cfg, log: log, version: version}
+	return &Server{
+		store:   st,
+		login:   loginSvc,
+		oauth:   oauthSvc,
+		cfg:     cfg,
+		log:     log,
+		version: version,
+	}
 }
 
 // Handler returns the fully wired root handler.
@@ -54,7 +65,30 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /auth/login/{provider}", s.handleLoginStart)
 	mux.HandleFunc("GET /auth/callback/{provider}", s.handleLoginCallback)
 
+	// OAuth discovery and the token endpoints are unauthenticated by definition:
+	// they are how a client obtains a credential in the first place.
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.handleAuthorizationServerMetadata)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", s.handleProtectedResourceMetadata)
+
+	// Path-inserted form, per RFC 9728: a client probing for the metadata of a
+	// resource at /mcp asks for /.well-known/oauth-protected-resource/mcp.
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource/{resource...}",
+		s.handleProtectedResourceMetadata)
+
+	mux.HandleFunc("POST /oauth/token", s.handleToken)
+	mux.HandleFunc("POST /oauth/revoke", s.handleRevoke)
+	mux.HandleFunc("POST /oauth/register", s.handleRegister)
+
+	// The authorize endpoint needs a signed-in human but cannot 401: an
+	// unauthenticated visitor is redirected into the sign-in flow instead, so it
+	// runs behind optionalAuth rather than requireAuth.
+	mux.Handle("GET /oauth/authorize", s.optionalAuth(http.HandlerFunc(s.handleAuthorize)))
+	mux.Handle("POST /oauth/authorize", s.requireAuth(http.HandlerFunc(s.handleAuthorizeDecision)))
+
 	api := http.NewServeMux()
+
+	api.HandleFunc("GET /v1/grants", s.handleListGrants)
+	api.HandleFunc("DELETE /v1/grants/{id}", s.handleRevokeGrant)
 
 	api.HandleFunc("GET /v1/me", s.handleMe)
 	api.HandleFunc("POST /v1/logout", s.handleLogout)

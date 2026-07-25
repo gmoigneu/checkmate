@@ -24,6 +24,7 @@ import (
 	"github.com/nls/checkmate/server/internal/database"
 	"github.com/nls/checkmate/server/internal/httpapi"
 	"github.com/nls/checkmate/server/internal/login"
+	"github.com/nls/checkmate/server/internal/oauth"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
@@ -148,12 +149,38 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		log.Info("no sign-in provider configured; bearer tokens are the only credential")
 	}
 
+	var oauthSvc *oauth.Service
+
+	if cfg.OAuthEnabled {
+		oauthSvc = oauth.New(st, oauth.Config{
+			Issuer:   cfg.BaseURL,
+			Resource: cfg.BaseURL,
+
+			// The MCP endpoint is a distinct resource identifier, and clients
+			// name the most specific URI they can, so both are accepted as this
+			// server's own audience.
+			ResourceAliases:          []string{cfg.MCPResource()},
+			AllowDynamicRegistration: cfg.OAuthAllowDynamicRegistration,
+			MaxDynamicClients:        cfg.OAuthMaxDynamicClients,
+		})
+
+		log.Info("oauth authorization server ready",
+			slog.String("issuer", oauthSvc.Issuer()),
+			slog.String("resource", oauthSvc.Resource()),
+			slog.Bool("dynamic_registration", oauthSvc.DynamicRegistrationEnabled()))
+
+		if !loginSvc.Enabled() {
+			log.Warn("oauth is enabled but no identity provider is configured: " +
+				"interactive clients cannot complete /oauth/authorize")
+		}
+	}
+
 	// Sweep dead sessions and abandoned login flows in the background.
 	go purgeLoop(ctx, st, log)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(st, loginSvc, cfg, log, version).Handler(),
+		Handler:           httpapi.New(st, loginSvc, oauthSvc, cfg, log, version).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
@@ -214,6 +241,12 @@ func purgeLoop(ctx context.Context, st *store.Store, log *slog.Logger) {
 			return
 		case <-ticker.C:
 			removed, err := st.PurgeExpired(ctx)
+			if oauthRemoved, oauthErr := st.PurgeExpiredOAuth(ctx); oauthErr == nil {
+				removed += oauthRemoved
+			} else if err == nil {
+				err = oauthErr
+			}
+
 			if err != nil {
 				log.Warn("purge expired sessions", slog.Any("error", err))
 

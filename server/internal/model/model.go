@@ -152,6 +152,13 @@ type Identity struct {
 	Email     string
 	Name      string
 	Timezone  string
+
+	// ClientID and Audience are set only for OAuth access tokens, naming the
+	// client acting on the user's behalf and the resource the token was minted
+	// for. Useful in logs: an OAuth request is attributable to a client, which a
+	// device token is not.
+	ClientID string
+	Audience string
 }
 
 // ViaCookie reports whether the caller authenticated with a session cookie.

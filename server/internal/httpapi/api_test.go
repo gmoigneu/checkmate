@@ -16,6 +16,7 @@ import (
 	"github.com/nls/checkmate/server/internal/config"
 	"github.com/nls/checkmate/server/internal/database"
 	"github.com/nls/checkmate/server/internal/httpapi"
+	"github.com/nls/checkmate/server/internal/oauth"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
@@ -56,6 +57,15 @@ func newHarness(t *testing.T) *harness {
 
 	st := store.New(db)
 
+	oauthSvc := oauth.New(st, oauth.Config{
+		Issuer:                    testBaseURL,
+		Resource:                  testBaseURL,
+		ResourceAliases:           []string{testBaseURL + "/mcp"},
+		AllowDynamicRegistration:  true,
+		MaxDynamicClients:         50,
+		AllowPrivateMetadataHosts: true,
+	})
+
 	// Built directly rather than through config.Load so tests do not depend on
 	// the process environment.
 	cfg := config.Config{
@@ -73,7 +83,7 @@ func newHarness(t *testing.T) *harness {
 
 	return &harness{
 		t:      t,
-		server: httpapi.New(st, nil, cfg, log, "test").Handler(),
+		server: httpapi.New(st, nil, oauthSvc, cfg, log, "test").Handler(),
 		store:  st,
 		cfg:    cfg,
 	}

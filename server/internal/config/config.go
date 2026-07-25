@@ -54,6 +54,19 @@ type Config struct {
 	// Google holds the OIDC client credentials. Login is offered only when both
 	// the id and the secret are set.
 	Google OIDCProvider
+
+	// OAuthEnabled turns on the authorization server that remote MCP clients
+	// authenticate against.
+	OAuthEnabled bool
+
+	// OAuthAllowDynamicRegistration enables the RFC 7591 endpoint. The MCP draft
+	// spec deprecates it in favour of Client ID Metadata Documents, but current
+	// clients still rely on it.
+	OAuthAllowDynamicRegistration bool
+
+	// OAuthMaxDynamicClients caps open registration so an unauthenticated
+	// endpoint cannot be used to fill the database.
+	OAuthMaxDynamicClients int
 }
 
 // OIDCProvider is one federated identity provider's client credentials.
@@ -140,8 +153,23 @@ func Load() (Config, error) {
 		ClientSecret: env("CHECKMATE_GOOGLE_CLIENT_SECRET", ""),
 	}
 
+	if cfg.OAuthEnabled, err = envBool("CHECKMATE_OAUTH_ENABLED", true); err != nil {
+		return Config{}, err
+	}
+
+	if cfg.OAuthAllowDynamicRegistration, err = envBool("CHECKMATE_OAUTH_ALLOW_DCR", true); err != nil {
+		return Config{}, err
+	}
+
+	if cfg.OAuthMaxDynamicClients, err = envInt("CHECKMATE_OAUTH_MAX_DYNAMIC_CLIENTS", 200); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
 }
+
+// MCPResource is the canonical RFC 8707 resource identifier for the MCP endpoint.
+func (c Config) MCPResource() string { return c.BaseURL + "/mcp" }
 
 // EmailAllowed reports whether an address may have an account provisioned for it.
 func (c Config) EmailAllowed(email string) bool {
@@ -236,6 +264,24 @@ func envBool(key string, fallback bool) (bool, error) {
 	v, err := strconv.ParseBool(strings.TrimSpace(raw))
 	if err != nil {
 		return false, fmt.Errorf("config: %s: %w", key, err)
+	}
+
+	return v, nil
+}
+
+func envInt(key string, fallback int) (int, error) {
+	raw, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return fallback, nil
+	}
+
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("config: %s: %w", key, err)
+	}
+
+	if v < 0 {
+		return 0, fmt.Errorf("config: %s cannot be negative", key)
 	}
 
 	return v, nil

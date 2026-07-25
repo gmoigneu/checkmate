@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/nls/checkmate/server/internal/model"
+	"github.com/nls/checkmate/server/internal/oauth"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
@@ -106,6 +107,10 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		}
 
 		if !ident.HasScope(required) {
+			// 403 with insufficient_scope, per RFC 6750, so an OAuth client
+			// knows to step up rather than treating this as fatal.
+			s.challenge(w, http.StatusForbidden, "insufficient_scope",
+				"the "+required+" scope is required for this request")
 			s.writeError(w, r, http.StatusForbidden, "token is missing the "+required+" scope")
 
 			return
@@ -115,17 +120,55 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// optionalAuth resolves a credential if one is present but never rejects the
+// request. Used by the OAuth authorize endpoint, which redirects an anonymous
+// visitor into sign-in rather than answering 401.
+func (s *Server) optionalAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(s.sessionCookieName())
+		if err != nil || cookie.Value == "" {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		ident, err := s.store.AuthenticateSession(r.Context(), cookie.Value, s.cfg.SessionIdleTimeout)
+		if err != nil {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		recordCaller(r.Context(), ident.UserID)
+		next.ServeHTTP(w, r.WithContext(withIdentity(r.Context(), ident)))
+	})
+}
+
 // authenticate resolves whichever credential the request carries.
 func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (model.Identity, bool) {
 	if secret, err := bearerToken(r); err == nil {
-		ident, err := s.store.AuthenticateToken(r.Context(), secret)
+		ident, err := s.resolveBearer(r, secret)
 		if err != nil {
-			if !errors.Is(err, store.ErrInvalidToken) {
-				s.log.Error("authenticate token", slog.Any("error", err))
-			}
+			switch {
+			case errors.Is(err, store.ErrWrongAudience):
+				// The token is real but was minted for a different resource.
+				// MCP requires this to be refused: accepting it is exactly the
+				// audience-confusion the resource indicator exists to prevent.
+				s.challenge(w, http.StatusUnauthorized, "invalid_token",
+					"the access token was issued for a different resource")
+				s.writeError(w, r, http.StatusUnauthorized,
+					"token audience does not match this resource")
 
-			w.Header().Set("WWW-Authenticate", `Bearer realm="checkmate", error="invalid_token"`)
-			s.writeError(w, r, http.StatusUnauthorized, "invalid or expired token")
+			case errors.Is(err, store.ErrInvalidToken):
+				s.challenge(w, http.StatusUnauthorized, "invalid_token",
+					"the access token is invalid or expired")
+				s.writeError(w, r, http.StatusUnauthorized, "invalid or expired token")
+
+			default:
+				s.log.Error("authenticate bearer token", slog.Any("error", err))
+				s.challenge(w, http.StatusUnauthorized, "invalid_token", "")
+				s.writeError(w, r, http.StatusUnauthorized, "invalid or expired token")
+			}
 
 			return model.Identity{}, false
 		}
@@ -150,10 +193,80 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (model.Ide
 		return ident, true
 	}
 
-	w.Header().Set("WWW-Authenticate", `Bearer realm="checkmate"`)
+	s.challenge(w, http.StatusUnauthorized, "", "")
 	s.writeError(w, r, http.StatusUnauthorized, "authentication required")
 
 	return model.Identity{}, false
+}
+
+// resolveBearer routes a bearer token to the table that issued it.
+//
+// Prefix dispatch rather than probing both tables: the credential kinds have
+// different lifecycles, and an OAuth token additionally has to pass audience
+// validation, which a device token has no concept of.
+func (s *Server) resolveBearer(r *http.Request, secret string) (model.Identity, error) {
+	if strings.HasPrefix(secret, oauth.AccessTokenPrefix) {
+		if s.oauth == nil {
+			return model.Identity{}, store.ErrInvalidToken
+		}
+
+		return s.store.AuthenticateAccessToken(r.Context(), secret, s.oauth.AcceptedAudiences())
+	}
+
+	// A refresh token is not a credential for the API, and silently failing the
+	// lookup would leave a confusing 401 for an easy client mistake.
+	if strings.HasPrefix(secret, oauth.RefreshTokenPrefix) {
+		return model.Identity{}, store.ErrInvalidToken
+	}
+
+	return s.store.AuthenticateToken(r.Context(), secret)
+}
+
+// challenge writes the WWW-Authenticate header MCP requires on 401 and 403.
+//
+// resource_metadata points a client at the RFC 9728 document, which is how it
+// discovers the authorization server without being configured with it. The scope
+// parameter tells it what to ask for, so it does not have to request everything.
+func (s *Server) challenge(w http.ResponseWriter, status int, errCode, description string) {
+	params := []string{`Bearer realm="checkmate"`}
+
+	if errCode != "" {
+		params = append(params, `error="`+errCode+`"`)
+	}
+
+	if description != "" {
+		params = append(params, `error_description="`+sanitizeHeaderValue(description)+`"`)
+	}
+
+	if s.oauth != nil {
+		params = append(params,
+			`resource_metadata="`+s.cfg.BaseURL+`/.well-known/oauth-protected-resource"`)
+
+		scope := oauth.ScopeRead
+		if status == http.StatusForbidden {
+			// An insufficient_scope challenge should name every scope the
+			// operation needs, so the client can step up once instead of
+			// discovering each missing scope in turn.
+			scope = strings.Join(oauth.ResourceScopes, " ")
+		}
+
+		params = append(params, `scope="`+scope+`"`)
+	}
+
+	w.Header().Set("WWW-Authenticate", strings.Join(params, ", "))
+}
+
+// sanitizeHeaderValue strips characters that would break out of a quoted header
+// parameter or inject a new header line.
+func sanitizeHeaderValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '"', '\\', '\r', '\n':
+			return -1
+		default:
+			return r
+		}
+	}, s)
 }
 
 // checkSameOrigin rejects a cookie-authenticated mutation that did not come from
