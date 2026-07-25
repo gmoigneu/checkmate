@@ -184,11 +184,21 @@ Returns eight lists plus totals:
 
 `?context_id=null` **is the inbox**. `?project_id=null` and `?parent_id=null` work the same way. `?parent_id=null` and `?top_level=true` are the same question.
 
-> **⚠️ Hard constraint: `GET /v1/tasks` is ordered newest-first by id, and there is no sort parameter.**
-> IDs are UUIDv7, so id-DESC = creation-time-DESC. **Any list sorted by due date, planned date, title or estimate must be sorted client-side after fetching, which only works within one 200-row page.** Consequences:
-> - The Brief (`W3`/`I3`/`M2`) is safe — the server sorts each bucket correctly.
-> - Views over ≤200 tasks are safe to sort client-side.
-> - A view that could exceed 200 rows and needs date ordering (`Upcoming` over a wide range, a large project) is **not** correctly buildable today. Design it, and list it in your response as depending on engineering adding `sort`/`order`. Do not design an interface that silently lies about ordering.
+> **RESOLVED 2026-07-25 — `sort` and `order` now exist.** This section previously
+> recorded a hard constraint; it no longer applies.
+>
+> `sort` accepts `created_at` (default), `updated_at`, `due_on`, `planned_on`,
+> `title`, `estimate_minutes`, `completed_at`, `status`; `order` is `asc`/`desc`.
+> Direction defaults to `desc` for `created_at` and `asc` for everything else.
+> **Rows with no value for the sort column always sort last, in both directions.**
+>
+> Pagination under a sort is keyset rather than offset, so it does not drift when
+> rows change between pages. `next_cursor` is opaque and **bound to the sort that
+> issued it** — reusing one under a different `sort`/`order` is a 422, so a UI that
+> lets the user change sort must restart the walk rather than reuse the cursor.
+>
+> Date-ordered views of any size are therefore buildable. `Upcoming` (`W10`) and
+> large project lists no longer need an ordering disclosure.
 
 ### 3.6 Sync — `GET /v1/sync?since=<rev>`
 
@@ -1129,16 +1139,54 @@ Plain, specific, unhurried. Never cheerful about someone's overdue work. Never s
 
 Raised by this spec. Design around them and flag where a screen depends on one.
 
-1. **`GET /v1/tasks` has no sort parameter** and returns newest-created-first (§3.5). Any date-ordered list beyond 200 rows is not correctly buildable. **The highest-impact API gap for the design.**
-2. **No reverse lookup for "what is blocked by this task"** (`W8`'s Blocking section). Needs either a `blocked_by_id` filter or client-side derivation from the full synced cache.
-3. **No person-merge endpoint.** Auto-created delegates from fast capture will accumulate duplicates and typos, with no way to fix them.
-4. **No endpoint updates the user record** — name and, critically, **timezone** are read-only via the API (`W15a`). Timezone determines what "today" means, so a user who travels or was provisioned with the wrong default cannot fix it in any client.
-5. **No aggregate counts.** Sidebar counts, project progress and context counts all require fetching rows. Specify the cost, or ask for count endpoints.
-6. **`contexts.color` is unvalidated free text.** The design must specify the format and palette; engineering should enforce it.
-7. **Native OAuth client registration** — the native apps need registered clients with exactly-matched redirect URIs. Decide between dynamic registration (RFC 7591, enabled by default) and a hosted Client ID Metadata Document, and confirm the custom URL scheme.
-8. **No push infrastructure**, so no server-driven badges, reminders or notifications. Everything is locally computed from synced data. Confirm this is acceptable, or scope a phase 2.
-9. **`/mcp` does not exist yet.** The OAuth layer an MCP client needs is complete, but there is no JSON-RPC endpoint behind it. `W15f` will list grants for clients that cannot yet call anything. Confirm how to present that.
-10. **No undelete.** Tombstones are visible via `include_deleted` but cannot be restored. Confirm that delete confirmations must therefore be firm.
+**Resolved since this document was written (2026-07-25).** Eight of the original ten
+are closed; the design should assume the resolved behaviour.
+
+1. ~~No sort parameter~~ → **`sort` and `order` implemented.** See the box in §3.5.
+   Date-ordered views of any size are buildable; the ordering disclosure in `W7` and
+   `W10` is no longer needed.
+2. ~~No reverse blocked-by lookup~~ → **`?blocked_by_id=` implemented.** `W8`'s
+   Blocking section is directly buildable. `?blocked_by_id=null` lists unblocked
+   tasks.
+3. ~~No person-merge~~ → **`POST /v1/people/{id}/merge` with `{"into": id}`
+   implemented.** Repoints tasks and recurrences, tombstones the duplicate, returns
+   `tasks_moved` so the UI can say "3 tasks moved to Marc". Design a merge affordance
+   in `W12`. Not reversible — confirm before calling. *Still open: no aliases, so the
+   next delegate-by-name can recreate the duplicate.*
+4. ~~No endpoint updates the user record~~ → **`PATCH /v1/me` implemented** for
+   `name` and `timezone`. Email stays read-only: it is the federated-identity join
+   key. `W15a` is buildable. Note that the profile is **not** in the sync feed, so
+   re-read `/v1/me` on foreground.
+5. **No aggregate counts — and now deliberately so.** Every syncing client already
+   holds the full dataset, so sidebar counts and project progress are a local
+   computation, not a request. Design them that way. Only a non-syncing client would
+   need an endpoint, and `/v1/brief` covers those numbers.
+6. ~~`contexts.color` unvalidated~~ → **`#rrggbb` is now enforced** at the API edge.
+   Three-digit shorthand and eight-digit alpha are rejected, not normalised. `null`
+   means "use the fallback". **The palette itself is still yours to specify.**
+7. **Native OAuth client registration — decided: dynamic registration.** The apps
+   self-register at first launch and persist the `client_id`. Design consequence: a
+   reinstall means a new `client_id`, so **consent is asked again** — `I1`/`M1` should
+   not present re-consent as an error. Redirect URI is the app's choice; a
+   reversed-domain scheme (`com.moigneu.checkmate:/oauth/callback`) is more reliable
+   in `ASWebAuthenticationSession` than loopback.
+8. **No push — confirmed, local-only.** Badges and reminders are computed on-device
+   from synced data. Say so wherever one is used, and note the limit: nothing fires
+   while the app has not synced recently.
+9. ~~`/mcp` does not exist~~ → **implemented**, Streamable HTTP with 15 tools.
+   `W15f` lists grants for clients that can now actually call something.
+10. **No undelete — resolved for tasks only.** `POST /v1/tasks/{id}/restore` brings
+    back a task and exactly the subtree deleted with it, so an undo affordance can
+    outlive the optimistic window. Contexts, projects, people and recurrences have no
+    restore, so **their** confirmations must be firm and must state the cascade.
+
+**Still open, and needing design input rather than engineering:**
+
+11. **`active: false` on a recurrence conflates paused and finished.** `W13`/`W13b`
+    cannot currently distinguish "I paused this" from "this series ended". Say whether
+    that matters enough to add a column.
+12. **`cancelled` has no UI convention yet.** It is distinct from `done` and from
+    deleted in the data; decide how it reads.
 
 ---
 

@@ -59,6 +59,9 @@ shape-checked.
 **Collections** return `{"data": [...], "next_cursor": "…"|null}`. **Single
 resources** return the bare object. `DELETE` returns 204.
 
+Three routes are actions rather than CRUD: `PATCH /v1/me` (profile),
+`POST /v1/tasks/{id}/restore` (§5.4) and `POST /v1/people/{id}/merge` (§4.7).
+
 **Errors** are `{"error": "...", "fields": {"due_on": "..."}}`. When `fields` is
 present, render each entry against its own control. A generic toast in that case
 throws away the only useful information in the response.
@@ -166,6 +169,19 @@ A spawned occurrence cannot be detached from its series.
 `sort_order` on a context and `lead_days` on a recurrence are `NOT NULL`. Sending
 `null` is a 422 naming the field, not a 500.
 
+### 4.7 Duplicate delegates are inevitable, and mergeable
+
+`delegated_to` and the MCP `delegate_task` create a person by name, which is the
+right ergonomics for capture and guarantees "Marc", "marc" and "Marc D." accumulate.
+Names are unique per user case-insensitively, so the duplicates are near-misses
+rather than exact ones.
+
+`POST /v1/people/{id}/merge` with `{"into": "<id>"}` repoints that person's tasks and
+recurrences onto the target, keeps the target's own name, email and notes, and
+tombstones the source. It returns `tasks_moved`, so a client can say "3 tasks moved
+to Marc" rather than reporting a silent success. Not reversible beyond re-delegating
+by hand.
+
 ### 4.6 Limits
 
 Body 1 MiB, reachable only through `details`. Titles 500 characters. Page size 200.
@@ -227,8 +243,8 @@ it is plainly no longer waiting to be sorted.
 ### 5.4 Delete cascades
 
 Deletes are tombstones — `deleted_at` is set so the change reaches sync clients —
-and each keeps the graph coherent. **There is no undelete.** Every confirmation
-must state what happens to the children, because it is non-obvious in every case:
+and each keeps the graph coherent. Every confirmation must state what happens to the
+children, because it is non-obvious in every case:
 
 | Deleting | What happens |
 | --- | --- |
@@ -237,6 +253,20 @@ must state what happens to the children, because it is non-obvious in every case
 | **Person** | Deleted. Tasks delegated to them **return to `todo`**, because the schema forbids a delegated task with no delegate. |
 | **Task** | Deleted **with its whole subtree**. Anything blocked by it is unblocked and returned to `todo`. |
 | **Recurrence** | Deleted and deactivated. **Occurrences already spawned are untouched** — they are real completion history. |
+
+**Only tasks can be restored**, with `POST /v1/tasks/{id}/restore`. It brings back
+exactly the subtree that went down together, identified by a batch id the delete
+stamps — a child deleted separately and earlier stays deleted. References that died
+meanwhile are repaired rather than restored into an incoherent row: a deleted context
+or project is dropped (back to the inbox), a still-deleted parent is dropped
+(promoted to top level), a deleted delegate is dropped and the status returns to
+`todo`.
+
+What restore cannot do is re-establish edges that pointed *at* the task: the deletion
+cleared `blocked_by_id` on its dependents and that is gone.
+
+Contexts, projects, people and recurrences have **no restore**, so their
+confirmations must be firm.
 
 ### 5.5 Error codes
 
@@ -322,8 +352,15 @@ What a client implementer needs to know:
 - **Refresh tokens rotate.** Replaying a rotated one **revokes the whole grant**, on
   the assumption that a replay means the token leaked and the attacker may already
   hold the successor. A client that retries a refresh badly will be logged out.
-- Registration: Client ID Metadata Documents preferred, dynamic registration
-  retained for current clients and capped.
+- Registration: **dynamic registration** (RFC 7591) is the chosen route for the iOS
+  and macOS apps — they self-register at first launch and persist the `client_id`.
+  Consequence to design for: a reinstall produces a new `client_id`, so consent is
+  asked again. Client ID Metadata Documents are also supported and are the spec's
+  preferred direction if that becomes annoying.
+- Redirect URIs are the app's own choice at registration. With
+  `application_type: native`, both loopback (`http://127.0.0.1:PORT/callback`) and a
+  reversed-domain private-use scheme (`com.example.app:/oauth/callback`) are
+  accepted; the latter is more reliable inside `ASWebAuthenticationSession`.
 
 `GET /v1/grants` lists connected clients; `DELETE /v1/grants/{id}` withdraws consent
 and kills every token under it.
@@ -528,8 +565,9 @@ No server support. A design needing one of these must be flagged, not drawn.
 - **A "someday" status** — the seven are exhaustive.
 - **Attachments** — `reference_url` + `reference_label` is the only external pointer.
 - **Comments, activity log, history** — `created_at` / `updated_at` only.
-- **Notifications or push** — no infrastructure. An iOS badge must be computed
-  on-device from synced data.
+- **Notifications or push** — no infrastructure, by decision. Badges and reminders
+  are computed on-device from synced data, which works offline; the limit is that
+  nothing can notify you while the app has not synced recently.
 - **Saved filters server-side** — client-local only, so per-device and unsynced.
 - **Sub-projects or nesting** — a project has one context and no children.
 - **Persisted manual ordering of tasks** — only *contexts* have `sort_order`. Tasks
@@ -538,12 +576,10 @@ No server support. A design needing one of these must be flagged, not drawn.
 - **Bulk edit endpoint** — no batch API. Bulk actions fan out to N PATCH calls;
   design the partial-failure state ("14 of 16 moved") rather than assuming
   atomicity.
-- **A reverse "blocking" query** — the tasks blocked *by* a given task are not
-  directly listable. Fetch and filter client-side, or add a filter server-side.
-- **`contexts.color` is unvalidated free text** — no format is enforced. Agree one
-  client-side and treat `null` as "use the fallback".
-- **Undelete** — tombstones are visible with `include_deleted` but cannot be
-  restored.
+- **Undelete for anything but a task** — a context, project, person or recurrence
+  tombstone is visible with `include_deleted` but cannot be brought back.
+- **Person aliases** — merging fixes duplicates after the fact, but nothing stops
+  delegate-by-name creating "Marc D." again next time.
 
 ---
 
@@ -575,12 +611,13 @@ No server support. A design needing one of these must be flagged, not drawn.
 
 1. **`active: false` conflates paused and finished** on a recurrence. A UI wanting
    to distinguish "I paused this" from "this series ended" needs another column.
-2. **No reverse blocking query** (§11). The task-detail "Blocking" list needs one, or
-   accepts client-side filtering over a page.
-3. **Project progress needs counting.** There is no aggregate endpoint, so
-   `done/total` for a project means fetching its tasks. Over 200 tasks that is not
-   answerable in one request.
-4. **`contexts.color` is unvalidated.** Worth enforcing a format server-side once the
-   palette is chosen.
-5. **Cancelled vs deleted** are distinct in the data but there is no UI convention
+2. **Project progress needs counting.** There is no aggregate endpoint, so
+   `done/total` for a project means fetching its tasks. Deliberate: every syncing
+   client already holds the rows and can count locally, so this only bites a client
+   that does not sync.
+3. **Cancelled vs deleted** are distinct in the data but there is no UI convention
    for cancelled yet.
+4. **No person aliases.** `merge` cleans up duplicates, but the next
+   delegate-by-name can recreate them. An alias table would prevent recurrence.
+5. **Restore is tasks-only** by decision, not by limitation. If losing a context
+   turns out to be a real accident, the same batch-id approach would extend.

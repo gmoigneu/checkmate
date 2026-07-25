@@ -196,6 +196,45 @@ paths:
               schema: { $ref: "#/components/schemas/Me" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+    patch:
+      tags: [Authentication]
+      summary: Update your own profile
+      description: |
+        `name` and `timezone` only. **Email is not editable here** — it is the join
+        key for a federated identity, so changing it would move which provider
+        account owns the data, and belongs in its own deliberate flow.
+
+        Timezone is why this exists: it decides which day "today" is for the brief,
+        and an account provisioned with the wrong default previously had no way to
+        correct it from any client.
+
+        The `users` table carries no `rev`, so a change here does **not** appear in
+        the sync feed. Re-read this endpoint on foreground rather than caching the
+        profile indefinitely.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1 }
+                timezone:
+                  type: string
+                  description: IANA name. Not nullable.
+                  examples: ["Europe/Paris"]
+      responses:
+        "200":
+          description: Updated, in the same shape as GET.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
   /v1/logout:
     post:
       tags: [Authentication]
@@ -303,6 +342,12 @@ paths:
         - name: recurrence_id
           in: query
           description: Every occurrence spawned from one series.
+          schema: { type: string }
+        - name: blocked_by_id
+          in: query
+          description: |
+            The reverse edge: which tasks are waiting on this one. `null` selects
+            tasks with no blocker at all.
           schema: { type: string }
         - name: planned_on
           in: query
@@ -426,6 +471,47 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/tasks/{id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [Tasks]
+      summary: Undo a task deletion
+      description: |
+        Deletes are tombstones, so the data is still there; this is the only way
+        back. Restores the task and **exactly the subtree that went down with it**,
+        identified by the batch id that delete stamped — a child deleted separately
+        and earlier stays deleted.
+
+        References that died while the task was away are repaired rather than
+        restored into an incoherent row: a deleted context or project is dropped
+        (returning the task to the inbox), a still-deleted parent is dropped
+        (promoting it to top level), and a deleted delegate is dropped with the
+        status returning to `todo`.
+
+        **What restore cannot do** is re-establish edges that pointed *at* this
+        task: the deletion cleared `blocked_by_id` on its dependents and that
+        information is gone.
+
+        Tasks only. Contexts, projects, people and recurrences have no restore, so
+        their delete confirmations must be firm.
+      responses:
+        "200":
+          description: Restored.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: |
+            The task is not deleted. Reported as a validation problem on `id`
+            rather than a conflict, so an idempotent retry does not look broken.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /v1/contexts:
     get:
@@ -713,6 +799,65 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/people/{id}/merge:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [People]
+      summary: Fold one person into another
+      description: |
+        Delegating by name creates a person on the spot, which is the right
+        ergonomics for fast capture and guarantees that "Marc", "marc" and
+        "Marc D." accumulate. This is the way back.
+
+        Every task and recurrence pointing at `{id}` is repointed at `into`, and
+        `{id}` is tombstoned. The target keeps its own name, email and notes. A
+        delegated task never has a moment without a delegate, so nothing has to be
+        un-delegated on the way through.
+
+        Not reversible beyond re-delegating by hand, so confirm before calling.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [into]
+              additionalProperties: false
+              properties:
+                into:
+                  type: string
+                  description: The person to keep. Must differ from `{id}`.
+      responses:
+        "200":
+          description: Merged.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [person, tasks_moved, merged_id]
+                properties:
+                  person: { $ref: "#/components/schemas/Person" }
+                  tasks_moved:
+                    type: integer
+                    description: |
+                      How many tasks were repointed, so a client can say "3 tasks
+                      moved to Marc" rather than reporting a silent success.
+                  merged_id:
+                    type: string
+                    description: The person that was tombstoned.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: |
+            Validation failed. `into` when it is missing, equal to `{id}`, or names
+            a person who does not exist.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /v1/recurrences:
     get:
@@ -1572,9 +1717,16 @@ components:
         slug: { type: string }
         color:
           type: ["string", "null"]
+          pattern: '^#[0-9a-fA-F]{6}$'
           description: |
-            **Unvalidated free text.** No format is enforced server-side; agree one
-            client-side and treat null as "use the fallback".
+            Exactly `#rrggbb`. Three-digit shorthand and eight-digit alpha are
+            rejected rather than normalised, so a client never has to handle three
+            spellings of one colour. Null means "use the fallback".
+
+            Validated at the API edge rather than by a CHECK constraint: adding one
+            would mean rebuilding the contexts table, and with foreign keys on that
+            fires ON DELETE CASCADE into projects, recurrences and tasks.
+          examples: ["#6b46c1"]
         sort_order:
           type: integer
           format: int64
@@ -1598,7 +1750,10 @@ components:
         slug:
           type: string
           description: Derived from the name when omitted. Unique per user.
-        color: { type: ["string", "null"] }
+        color:
+          type: ["string", "null"]
+          pattern: '^#[0-9a-fA-F]{6}$'
+          examples: ["#6b46c1"]
         sort_order:
           type: ["integer", "null"]
           format: int64
@@ -1610,7 +1765,9 @@ components:
       properties:
         name: { type: string, minLength: 1 }
         slug: { type: string, minLength: 1 }
-        color: { type: ["string", "null"] }
+        color:
+          type: ["string", "null"]
+          pattern: '^#[0-9a-fA-F]{6}$'
         sort_order:
           type: integer
           format: int64

@@ -359,6 +359,10 @@ POST   /v1/{contexts,projects,people,recurrences,tasks}
 GET    /v1/{...}/{id}
 PATCH  /v1/{...}/{id}
 DELETE /v1/{...}/{id}
+
+GET    /v1/me · PATCH /v1/me          name and timezone; email is not editable
+POST   /v1/tasks/{id}/restore         undo a delete, subtree included
+POST   /v1/people/{id}/merge          fold a duplicate delegate into another
 ```
 
 Collections return `{"data": [...], "next_cursor": "<id>|null"}`. Single
@@ -445,7 +449,7 @@ graph coherent rather than dangling:
 | Context | Its projects and recurrences are tombstoned; its **tasks move to the inbox** rather than being deleted |
 | Project | Tombstoned; its tasks stay in their context and lose the grouping |
 | Person | Tombstoned; tasks delegated to them return to `todo` (the schema forbids a delegated task with no delegate) |
-| Task | Tombstoned with its whole subtree; anything blocked by it is unblocked and returned to `todo` |
+| Task | Tombstoned with its whole subtree; anything blocked by it is unblocked and returned to `todo`. **Restorable** |
 | Recurrence | Tombstoned and deactivated; occurrences already spawned are left alone, since they are real history |
 
 Moving a project to another context moves its tasks with it.

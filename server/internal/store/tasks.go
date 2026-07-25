@@ -80,6 +80,11 @@ type TaskFilter struct {
 	DelegatedToID string
 	RecurrenceID  string
 
+	// BlockedByID gives the reverse edge: which tasks are waiting on this one.
+	// BlockedByIsNull selects tasks with no blocker at all.
+	BlockedByID     string
+	BlockedByIsNull bool
+
 	PlannedOn     string
 	PlannedBefore string
 	PlannedAfter  string
@@ -138,6 +143,13 @@ func (s *Store) ListTasks(ctx context.Context, userID string, f TaskFilter) ([]m
 
 	if f.RecurrenceID != "" {
 		c.add("recurrence_id = ?", f.RecurrenceID)
+	}
+
+	switch {
+	case f.BlockedByIsNull:
+		c.add("blocked_by_id IS NULL")
+	case f.BlockedByID != "":
+		c.add("blocked_by_id = ?", f.BlockedByID)
 	}
 
 	for _, r := range []struct {
@@ -565,6 +577,10 @@ func (s *Store) DeleteTask(ctx context.Context, userID, taskID string) error {
 			return ErrNotFound
 		}
 
+		// One id for this whole delete, so a later restore can bring back exactly
+		// this set and not a child that was deleted separately.
+		batch := id.New()
+
 		// Collect the subtree first: the tombstone has to reach descendants at
 		// every depth, not just direct children.
 		_, err := tx.ExecContext(ctx, `
@@ -574,9 +590,9 @@ func (s *Store) DeleteTask(ctx context.Context, userID, taskID string) error {
 				SELECT t.id FROM tasks t JOIN subtree ON t.parent_id = subtree.id
 			)
 			UPDATE tasks
-			SET deleted_at = `+nowExpr+`, updated_at = `+nowExpr+`
+			SET deleted_at = `+nowExpr+`, deleted_batch = ?, updated_at = `+nowExpr+`
 			WHERE user_id = ? AND deleted_at IS NULL AND id IN (SELECT id FROM subtree)`,
-			taskID, userID,
+			taskID, batch, userID,
 		)
 		if err != nil {
 			return fmt.Errorf("store: delete task subtree: %w", err)

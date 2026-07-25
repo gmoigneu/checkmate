@@ -110,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /v1/brief", s.handleBrief)
 
 	api.HandleFunc("GET /v1/me", s.handleMe)
+	api.HandleFunc("PATCH /v1/me", s.handleUpdateMe)
 	api.HandleFunc("POST /v1/logout", s.handleLogout)
 	api.HandleFunc("GET /v1/sources", s.handleListSources)
 
@@ -157,6 +158,11 @@ func (s *Server) Handler() http.Handler {
 		api.HandleFunc("PATCH /v1/"+res.path+"/{id}", res.update)
 		api.HandleFunc("DELETE /v1/"+res.path+"/{id}", res.remove)
 	}
+
+	// Actions that are not CRUD on a resource: undoing a delete, and folding two
+	// people into one.
+	api.HandleFunc("POST /v1/tasks/{id}/restore", s.handleRestoreTask)
+	api.HandleFunc("POST /v1/people/{id}/merge", s.handleMergePerson)
 
 	mux.Handle("/v1/", s.requireAuth(api))
 

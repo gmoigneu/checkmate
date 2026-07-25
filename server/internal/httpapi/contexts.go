@@ -88,6 +88,8 @@ func (s *Server) handleCreateContext(w http.ResponseWriter, r *http.Request) {
 		v.add("slug", "must contain at least one letter or digit")
 	}
 
+	checkColor(v, "color", req.Color)
+
 	if v.any() {
 		s.writeStoreError(w, r, v)
 
@@ -128,6 +130,8 @@ func (s *Server) handleUpdateContext(w http.ResponseWriter, r *http.Request) {
 	if req.Archived.Set && req.Archived.Null {
 		v.add("archived", "cannot be null")
 	}
+
+	checkColorPatch(v, "color", req.Color)
 
 	// sort_order is NOT NULL in the schema, so a null here would reach sqlite as
 	// a constraint violation and surface as a 500. A client mistake has to be

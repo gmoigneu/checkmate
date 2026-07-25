@@ -75,6 +75,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		Order:         p.enum("order", store.SortOrders),
 	}
 
+	f.BlockedByID, f.BlockedByIsNull = p.nullableID("blocked_by_id")
 	f.ContextID, f.ContextIsNull = p.nullableID("context_id")
 	f.ProjectID, f.ProjectIsNull = p.nullableID("project_id")
 	f.ParentID, _ = p.nullableID("parent_id")
