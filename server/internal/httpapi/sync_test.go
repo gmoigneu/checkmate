@@ -281,6 +281,120 @@ func TestSyncSeesUpdatesNotJustCreates(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Recurrence spawning through the API
+// ---------------------------------------------------------------------------
+
+// TestCreatingARecurrenceSpawnsImmediately covers the inline spawn: without it,
+// creating a daily recurrence shows nothing until the scheduler ticks, which
+// reads as the feature being broken.
+func TestCreatingARecurrenceSpawnsImmediately(t *testing.T) {
+	h := newHarness(t)
+	u := h.user("you@example.com")
+
+	today := time.Now().UTC().Format("2006-01-02")
+
+	recurrenceID := h.do(http.MethodPost, "/v1/recurrences", u.Token, map[string]any{
+		"context_id": h.firstContextID(u),
+		"title":      "Daily standup",
+		"rrule":      "FREQ=DAILY",
+		"starts_on":  today,
+		"timezone":   "UTC",
+	}).expect(http.StatusCreated).id()
+
+	// The occurrence is queryable in the very next request.
+	items := h.do(http.MethodGet, "/v1/tasks?recurrence_id="+recurrenceID, u.Token, nil).
+		expect(http.StatusOK).list()
+
+	if len(items) != 1 {
+		t.Fatalf("tasks for the new recurrence = %d, want 1 spawned immediately", len(items))
+	}
+
+	task := items[0]
+
+	if task["kind"] != "recurring" {
+		t.Errorf("kind = %v, want recurring", task["kind"])
+	}
+
+	if task["capture_method"] != "recurrence" {
+		t.Errorf("capture_method = %v, want recurrence", task["capture_method"])
+	}
+
+	if task["occurrence_on"] != today {
+		t.Errorf("occurrence_on = %v, want today (%s)", task["occurrence_on"], today)
+	}
+
+	if task["due_on"] != today {
+		t.Errorf("due_on = %v, want today so it lands in the brief", task["due_on"])
+	}
+
+	// And it shows up in today's brief as due.
+	brief := h.brief(u, "?timezone=UTC")
+	if brief.Totals.DueToday != 1 {
+		t.Errorf("brief due_today = %d, want the spawned occurrence", brief.Totals.DueToday)
+	}
+}
+
+// TestSpawnedOccurrencesAreOwnedByTheTemplateOwner checks the one place the
+// spawner steps outside the per-user store convention: it walks every account, so
+// the rows it writes must take their user_id from the template.
+func TestSpawnedOccurrencesAreOwnedByTheTemplateOwner(t *testing.T) {
+	h := newHarness(t)
+	alice := h.user("alice@example.com")
+	bob := h.user("bob@example.com")
+
+	today := time.Now().UTC().Format("2006-01-02")
+
+	h.do(http.MethodPost, "/v1/recurrences", alice.Token, map[string]any{
+		"context_id": h.firstContextID(alice),
+		"title":      "Alice's standup",
+		"rrule":      "FREQ=DAILY",
+		"starts_on":  today,
+		"timezone":   "UTC",
+	}).expect(http.StatusCreated)
+
+	if items := h.do(http.MethodGet, "/v1/tasks", bob.Token, nil).
+		expect(http.StatusOK).list(); len(items) != 0 {
+		t.Errorf("bob sees %d tasks spawned from alice's template, want 0", len(items))
+	}
+
+	if items := h.do(http.MethodGet, "/v1/tasks", alice.Token, nil).
+		expect(http.StatusOK).list(); len(items) != 1 {
+		t.Errorf("alice sees %d of her own spawned tasks, want 1", len(items))
+	}
+}
+
+func TestDeactivatingARecurrenceStopsSpawning(t *testing.T) {
+	h := newHarness(t)
+	u := h.user("you@example.com")
+
+	today := time.Now().UTC().Format("2006-01-02")
+
+	recurrenceID := h.do(http.MethodPost, "/v1/recurrences", u.Token, map[string]any{
+		"context_id": h.firstContextID(u),
+		"title":      "Pausable",
+		"rrule":      "FREQ=DAILY",
+		"starts_on":  today,
+		"timezone":   "UTC",
+		"active":     false,
+	}).expect(http.StatusCreated).id()
+
+	if items := h.do(http.MethodGet, "/v1/tasks?recurrence_id="+recurrenceID, u.Token, nil).
+		expect(http.StatusOK).list(); len(items) != 0 {
+		t.Errorf("an inactive template spawned %d tasks, want 0", len(items))
+	}
+
+	// Activating it makes the occurrence appear.
+	h.do(http.MethodPatch, "/v1/recurrences/"+recurrenceID, u.Token, map[string]any{
+		"active": true,
+	}).expect(http.StatusOK)
+
+	if items := h.do(http.MethodGet, "/v1/tasks?recurrence_id="+recurrenceID, u.Token, nil).
+		expect(http.StatusOK).list(); len(items) != 1 {
+		t.Errorf("after activating, tasks = %d, want 1", len(items))
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Daily brief
 // ---------------------------------------------------------------------------
 
@@ -500,6 +614,54 @@ func TestBriefRejectsBadParameters(t *testing.T) {
 		if res.fields()[field] == "" {
 			t.Errorf("%s: error names %v, want an entry for %s", query, res.fields(), field)
 		}
+	}
+}
+
+// TestBriefTotalsAreNotCappedByTheList pins a fix: the totals used to be
+// len() of the returned slice, which was itself capped. Someone with three
+// hundred overdue tasks would have been told they had a hundred, and the number
+// in a brief is the part people act on.
+func TestBriefTotalsAreNotCappedByTheList(t *testing.T) {
+	h := newHarness(t)
+	u := h.user("you@example.com")
+	contextID := h.firstContextID(u)
+
+	// Comfortably past the 100-item display cap.
+	const overdueCount = 105
+
+	for i := range overdueCount {
+		h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
+			"title": fmt.Sprintf("overdue %d", i), "context_id": contextID,
+			"due_on": "2020-01-01", "status": "todo",
+			"planned_on": time.Now().UTC().Format("2006-01-02"),
+			// Every other task carries an estimate, so the summed minutes and
+			// the unestimated count both have to come from the whole set.
+			"estimate_minutes": 10,
+		}).expect(http.StatusCreated)
+	}
+
+	h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
+		"title": "planned, no estimate", "context_id": contextID,
+		"planned_on": time.Now().UTC().Format("2006-01-02"), "status": "todo",
+	}).expect(http.StatusCreated)
+
+	brief := h.brief(u, "?timezone=UTC")
+
+	if brief.Totals.Overdue != overdueCount {
+		t.Errorf("totals.overdue = %d, want %d", brief.Totals.Overdue, overdueCount)
+	}
+
+	if len(brief.Overdue) != 100 {
+		t.Errorf("overdue list = %d items, want it capped at 100", len(brief.Overdue))
+	}
+
+	if want := overdueCount * 10; brief.Totals.PlannedMinutes != want {
+		t.Errorf("planned_minutes = %d, want %d summed over the whole bucket",
+			brief.Totals.PlannedMinutes, want)
+	}
+
+	if brief.Totals.PlannedWithoutEstimate != 1 {
+		t.Errorf("planned_without_estimate = %d, want 1", brief.Totals.PlannedWithoutEstimate)
 	}
 }
 

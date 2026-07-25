@@ -19,6 +19,7 @@ import (
 	"github.com/nls/checkmate/server/internal/config"
 	"github.com/nls/checkmate/server/internal/login"
 	"github.com/nls/checkmate/server/internal/oauth"
+	"github.com/nls/checkmate/server/internal/recurrence"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
@@ -27,6 +28,7 @@ type Server struct {
 	store   *store.Store
 	login   *login.Service
 	oauth   *oauth.Service
+	spawner *recurrence.Spawner
 	cfg     config.Config
 	log     *slog.Logger
 	version string
@@ -40,6 +42,7 @@ func New(
 	st *store.Store,
 	loginSvc *login.Service,
 	oauthSvc *oauth.Service,
+	spawner *recurrence.Spawner,
 	cfg config.Config,
 	log *slog.Logger,
 	version string,
@@ -48,6 +51,7 @@ func New(
 		store:   st,
 		login:   loginSvc,
 		oauth:   oauthSvc,
+		spawner: spawner,
 		cfg:     cfg,
 		log:     log,
 		version: version,

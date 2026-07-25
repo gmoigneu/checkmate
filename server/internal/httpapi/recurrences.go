@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -143,8 +144,38 @@ func (s *Server) handleCreateRecurrence(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	s.spawnNow(r, ident.UserID, created.ID)
+
 	w.Header().Set("Location", "/v1/recurrences/"+created.ID)
 	s.writeJSON(w, r, http.StatusCreated, created)
+}
+
+// spawnNow materializes a template's due occurrences immediately.
+//
+// Synchronous, and deliberately best-effort: the scheduler will pick the template
+// up within the tick regardless, so a failure here is a delay rather than lost
+// work and must not fail the write the caller actually asked for. Doing it inline
+// means creating a daily recurrence and listing tasks in the next breath shows
+// today's occurrence, instead of nothing for fifteen minutes.
+func (s *Server) spawnNow(r *http.Request, userID, recurrenceID string) {
+	if s.spawner == nil {
+		return
+	}
+
+	result, err := s.spawner.RunTemplate(r.Context(), userID, recurrenceID)
+	if err != nil {
+		s.log.Warn("could not spawn occurrences for a new recurrence",
+			slog.String("recurrence_id", recurrenceID),
+			slog.Any("error", err))
+
+		return
+	}
+
+	if result.Created > 0 {
+		s.log.Info("spawned occurrences",
+			slog.String("recurrence_id", recurrenceID),
+			slog.Int("created", result.Created))
+	}
 }
 
 func (s *Server) handleUpdateRecurrence(w http.ResponseWriter, r *http.Request) {
@@ -207,6 +238,8 @@ func (s *Server) handleUpdateRecurrence(w http.ResponseWriter, r *http.Request) 
 
 		return
 	}
+
+	s.spawnNow(r, ident.UserID, updated.ID)
 
 	s.writeJSON(w, r, http.StatusOK, updated)
 }

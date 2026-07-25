@@ -25,6 +25,7 @@ import (
 	"github.com/nls/checkmate/server/internal/httpapi"
 	"github.com/nls/checkmate/server/internal/login"
 	"github.com/nls/checkmate/server/internal/oauth"
+	"github.com/nls/checkmate/server/internal/recurrence"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
@@ -42,6 +43,7 @@ Usage:
   checkmate migrate status             Show migration state
   checkmate user create -email E -name N [-timezone TZ]
   checkmate token create -email E -name N [-scopes "read write"]
+  checkmate recurrence spawn           Materialize due recurring tasks once
   checkmate version                    Print the build version
 
 Environment:
@@ -101,6 +103,8 @@ func run(args []string) error {
 		return userCmd(ctx, cfg, log, args[1:])
 	case "token":
 		return tokenCmd(ctx, cfg, log, args[1:])
+	case "recurrence":
+		return recurrenceCmd(ctx, cfg, log, args[1:])
 	case "version":
 		fmt.Println(version)
 
@@ -181,9 +185,14 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// Sweep dead sessions and abandoned login flows in the background.
 	go purgeLoop(ctx, st, log)
 
+	// Materialize recurring tasks. Runs once at boot so an occurrence missed
+	// while the process was down appears immediately rather than at the next tick.
+	spawner := recurrence.New(st, log)
+	go spawnLoop(ctx, spawner, log)
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(st, loginSvc, oauthSvc, cfg, log, version).Handler(),
+		Handler:           httpapi.New(st, loginSvc, oauthSvc, spawner, cfg, log, version).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
@@ -261,6 +270,77 @@ func purgeLoop(ctx context.Context, st *store.Store, log *slog.Logger) {
 			}
 		}
 	}
+}
+
+// spawnLoop materializes recurring tasks on a timer.
+//
+// The interval is short relative to a day because the spawner is idempotent: the
+// unique index on (recurrence_id, occurrence_on) means an extra pass costs a
+// query and creates nothing. Running often is how a task whose lead window opens
+// at midnight shows up promptly.
+func spawnLoop(ctx context.Context, spawner *recurrence.Spawner, log *slog.Logger) {
+	const interval = 15 * time.Minute
+
+	runOnce := func() {
+		result, err := spawner.Run(ctx)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				log.Error("spawn recurring tasks", slog.Any("error", err))
+			}
+
+			return
+		}
+
+		// Only worth a line when something actually happened; a quiet pass every
+		// fifteen minutes would drown the log.
+		if result.Created > 0 || result.Failed > 0 || result.Completed > 0 || result.Missed > 0 {
+			log.Info("spawned recurring tasks",
+				slog.Int("templates", result.Templates),
+				slog.Int("created", result.Created),
+				slog.Int("skipped", result.Skipped),
+				slog.Int("missed", result.Missed),
+				slog.Int("completed", result.Completed),
+				slog.Int("failed", result.Failed))
+		}
+	}
+
+	runOnce()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runOnce()
+		}
+	}
+}
+
+// recurrenceCmd runs the spawner once, for cron or for a manual nudge.
+func recurrenceCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []string) error {
+	if len(args) == 0 || args[0] != "spawn" {
+		return errors.New("recurrence needs a subcommand: spawn")
+	}
+
+	db, err := open(ctx, cfg, log, false)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	result, err := recurrence.New(store.New(db), log).Run(ctx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("templates=%d created=%d skipped=%d missed=%d completed=%d failed=%d\n",
+		result.Templates, result.Created, result.Skipped,
+		result.Missed, result.Completed, result.Failed)
+
+	return nil
 }
 
 func migrateCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []string) error {

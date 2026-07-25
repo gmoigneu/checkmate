@@ -172,46 +172,40 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 		return Brief{}, err
 	}
 
-	waiting, err := s.groupWaitingOn(ctx, userID, delegated)
+	waiting, err := s.groupWaitingOn(ctx, userID, delegated.Tasks)
 	if err != nil {
 		return Brief{}, err
 	}
 
 	brief.Totals = BriefTotals{
-		Overdue:        len(overdue),
-		DueToday:       len(dueToday),
-		Planned:        len(planned),
-		Inbox:          len(inbox),
-		Blocked:        len(blocked),
-		WaitingOn:      len(delegated),
-		InProgress:     len(inProgress),
-		CompletedToday: len(completed),
+		Overdue:        overdue.Total,
+		DueToday:       dueToday.Total,
+		Planned:        planned.Total,
+		Inbox:          inbox.Total,
+		Blocked:        blocked.Total,
+		WaitingOn:      delegated.Total,
+		InProgress:     inProgress.Total,
+		CompletedToday: completed.Total,
+
+		// Summed over the whole bucket by SQL, so an over-committed day still
+		// reads correctly when the list itself was capped.
+		PlannedMinutes:         planned.EstimateMinutes,
+		PlannedWithoutEstimate: planned.WithoutEstimate,
 	}
 
-	for _, task := range planned {
-		if task.EstimateMinutes != nil {
-			brief.Totals.PlannedMinutes += int(*task.EstimateMinutes)
-
-			continue
-		}
-
-		brief.Totals.PlannedWithoutEstimate++
-	}
-
-	brief.Overdue = capBucket(overdue)
-	brief.DueToday = capBucket(dueToday)
-	brief.Planned = capBucket(planned)
-	brief.InProgress = capBucket(inProgress)
-	brief.Inbox = capBucket(inbox)
-	brief.Blocked = capBucket(blocked)
-	brief.CompletedToday = capBucket(completed)
+	brief.Overdue = overdue.Tasks
+	brief.DueToday = dueToday.Tasks
+	brief.Planned = planned.Tasks
+	brief.InProgress = inProgress.Tasks
+	brief.Inbox = inbox.Tasks
+	brief.Blocked = blocked.Tasks
+	brief.CompletedToday = completed.Tasks
 	brief.WaitingOn = waiting
 
 	return brief, nil
 }
 
-// cap trims a bucket to the display limit. Totals are computed before this, so a
-// capped list still reports an honest count.
+// capBucket trims a list to the display limit.
 func capBucket[T any](rows []T) []T {
 	if rows == nil {
 		return []T{}
@@ -292,30 +286,70 @@ func (s *Store) peopleNames(ctx context.Context, userID string) (map[string]stri
 	return names, rows.Err()
 }
 
-// briefTasks runs one bucket query.
-func (s *Store) briefTasks(ctx context.Context, where string, args []any, order string) ([]model.Task, error) {
-	// where and order are assembled from package literals; only args carry input.
-	query := `SELECT ` + taskColumns + ` FROM tasks_with_kind WHERE ` + where +
-		` ORDER BY ` + order + `, id DESC LIMIT ?`
+// bucket is one section of the brief: the rows to show plus the true count.
+type bucket struct {
+	Tasks []model.Task
 
-	rows, err := s.db.QueryContext(ctx, query, append(args, briefBucketLimit*4)...)
+	// Total is the real number matching the filter, which may exceed the number
+	// of rows returned.
+	Total int
+
+	// EstimateMinutes and WithoutEstimate summarise the whole bucket, not just
+	// the returned page.
+	EstimateMinutes int
+	WithoutEstimate int
+}
+
+// briefTasks runs one bucket: an aggregate for honest totals, then the rows to
+// display.
+//
+// Two queries rather than counting the returned slice, because the slice is
+// capped. Deriving the total from a capped list would silently report "100
+// overdue" to someone with three hundred, and the number in a brief is the part
+// people act on.
+func (s *Store) briefTasks(ctx context.Context, where string, args []any, order string) (bucket, error) {
+	// where and order are assembled from package literals; only args carry input.
+	var b bucket
+
+	err := s.db.QueryRowContext(ctx,
+		`SELECT count(*),
+		        coalesce(sum(coalesce(estimate_minutes, 0)), 0),
+		        coalesce(sum(CASE WHEN estimate_minutes IS NULL THEN 1 ELSE 0 END), 0)
+		 FROM tasks_with_kind WHERE `+where,
+		args...,
+	).Scan(&b.Total, &b.EstimateMinutes, &b.WithoutEstimate)
 	if err != nil {
-		return nil, fmt.Errorf("store: brief bucket: %w", err)
+		return bucket{}, fmt.Errorf("store: brief totals: %w", err)
+	}
+
+	if b.Total == 0 {
+		b.Tasks = []model.Task{}
+
+		return b, nil
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+taskColumns+` FROM tasks_with_kind WHERE `+where+
+			` ORDER BY `+order+`, id DESC LIMIT ?`,
+		append(args, briefBucketLimit)...,
+	)
+	if err != nil {
+		return bucket{}, fmt.Errorf("store: brief bucket: %w", err)
 	}
 	defer rows.Close()
 
-	var out []model.Task
+	b.Tasks = []model.Task{}
 
 	for rows.Next() {
 		task, err := scanTask(rows)
 		if err != nil {
-			return nil, err
+			return bucket{}, err
 		}
 
-		out = append(out, task)
+		b.Tasks = append(b.Tasks, task)
 	}
 
-	return out, rows.Err()
+	return b, rows.Err()
 }
 
 func briefContextClause(contextID string) (string, []any) {

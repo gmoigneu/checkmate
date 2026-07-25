@@ -17,6 +17,7 @@ import (
 	"github.com/nls/checkmate/server/internal/database"
 	"github.com/nls/checkmate/server/internal/httpapi"
 	"github.com/nls/checkmate/server/internal/oauth"
+	"github.com/nls/checkmate/server/internal/recurrence"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
@@ -83,7 +84,7 @@ func newHarness(t *testing.T) *harness {
 
 	return &harness{
 		t:      t,
-		server: httpapi.New(st, nil, oauthSvc, cfg, log, "test").Handler(),
+		server: httpapi.New(st, nil, oauthSvc, recurrence.New(st, log), cfg, log, "test").Handler(),
 		store:  st,
 		cfg:    cfg,
 	}

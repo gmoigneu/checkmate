@@ -109,7 +109,7 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		if !ident.HasScope(required) {
 			// 403 with insufficient_scope, per RFC 6750, so an OAuth client
 			// knows to step up rather than treating this as fatal.
-			s.challenge(w, http.StatusForbidden, "insufficient_scope",
+			s.challenge(w, r, "insufficient_scope",
 				"the "+required+" scope is required for this request")
 			s.writeError(w, r, http.StatusForbidden, "token is missing the "+required+" scope")
 
@@ -154,19 +154,19 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (model.Ide
 				// The token is real but was minted for a different resource.
 				// MCP requires this to be refused: accepting it is exactly the
 				// audience-confusion the resource indicator exists to prevent.
-				s.challenge(w, http.StatusUnauthorized, "invalid_token",
+				s.challenge(w, r, "invalid_token",
 					"the access token was issued for a different resource")
 				s.writeError(w, r, http.StatusUnauthorized,
 					"token audience does not match this resource")
 
 			case errors.Is(err, store.ErrInvalidToken):
-				s.challenge(w, http.StatusUnauthorized, "invalid_token",
+				s.challenge(w, r, "invalid_token",
 					"the access token is invalid or expired")
 				s.writeError(w, r, http.StatusUnauthorized, "invalid or expired token")
 
 			default:
 				s.log.Error("authenticate bearer token", slog.Any("error", err))
-				s.challenge(w, http.StatusUnauthorized, "invalid_token", "")
+				s.challenge(w, r, "invalid_token", "")
 				s.writeError(w, r, http.StatusUnauthorized, "invalid or expired token")
 			}
 
@@ -193,7 +193,7 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (model.Ide
 		return ident, true
 	}
 
-	s.challenge(w, http.StatusUnauthorized, "", "")
+	s.challenge(w, r, "", "")
 	s.writeError(w, r, http.StatusUnauthorized, "authentication required")
 
 	return model.Identity{}, false
@@ -227,7 +227,12 @@ func (s *Server) resolveBearer(r *http.Request, secret string) (model.Identity, 
 // resource_metadata points a client at the RFC 9728 document, which is how it
 // discovers the authorization server without being configured with it. The scope
 // parameter tells it what to ask for, so it does not have to request everything.
-func (s *Server) challenge(w http.ResponseWriter, status int, errCode, description string) {
+//
+// The advertised scope is derived from the request method, not from the status.
+// Naming "read" on an unauthenticated write would send the client through
+// authorization, hand it a read-only token, and fail its very next request with
+// insufficient_scope: a whole extra round trip through the user for no reason.
+func (s *Server) challenge(w http.ResponseWriter, r *http.Request, errCode, description string) {
 	params := []string{`Bearer realm="checkmate"`}
 
 	if errCode != "" {
@@ -242,12 +247,11 @@ func (s *Server) challenge(w http.ResponseWriter, status int, errCode, descripti
 		params = append(params,
 			`resource_metadata="`+s.cfg.BaseURL+`/.well-known/oauth-protected-resource"`)
 
-		scope := oauth.ScopeRead
-		if status == http.StatusForbidden {
-			// An insufficient_scope challenge should name every scope the
-			// operation needs, so the client can step up once instead of
-			// discovering each missing scope in turn.
-			scope = strings.Join(oauth.ResourceScopes, " ")
+		// A write needs both: read to see what it changed, write to change it.
+		// Challenging incrementally would force a second step-up.
+		scope := strings.Join(oauth.ResourceScopes, " ")
+		if isSafeMethod(r.Method) {
+			scope = oauth.ScopeRead
 		}
 
 		params = append(params, `scope="`+scope+`"`)

@@ -28,6 +28,7 @@ internal/store           all SQL; every method takes a user id and scopes by it
 internal/account         user / context seeding, API token issuing
 internal/login           federated sign-in (OIDC client)
 internal/oauth           OAuth 2.1 authorization server, CIMD fetching
+internal/recurrence       RRULE evaluation and the occurrence spawner
 internal/httpapi         router, middleware, handlers, consent screen
 internal/patch           absent / null / set JSON field for PATCH
 internal/id              UUIDv7 generation
@@ -76,12 +77,45 @@ recurring task that is also delegated reads as recurring.
 
 ### Recurrence
 
-`recurrences` holds the template with an RFC 5545 `rrule` (`FREQ=WEEKLY;BYDAY=MO`).
-The spawner materializes each occurrence as a real `tasks` row carrying
-`recurrence_id` and `occurrence_on`. Completion history therefore survives, and
-every list query treats recurring and one-shot tasks identically. A unique index
-on `(recurrence_id, occurrence_on)` makes spawning idempotent, so the scheduler
-can run as often as it likes.
+`recurrences` holds the template with an RFC 5545 `rrule` (`FREQ=WEEKLY;BYDAY=MO`),
+evaluated by `teambition/rrule-go` rather than a hand-rolled subset. The spawner
+materializes each occurrence as a real `tasks` row carrying `recurrence_id` and
+`occurrence_on`, with `due_on` set to the occurrence date so it lands in the daily
+brief. Completion history therefore survives — you can see the Monday report was
+done thirty times — and every list query treats recurring and one-shot tasks
+identically.
+
+It runs at boot, every 15 minutes, inline when a template is created or edited
+(otherwise a new daily recurrence shows nothing for a quarter of an hour), and on
+demand:
+
+```sh
+checkmate recurrence spawn
+```
+
+Four properties worth knowing:
+
+- **Idempotent.** A unique index on `(recurrence_id, occurrence_on)` means an
+  extra pass creates nothing, so the ticker, the boot run, the inline call and a
+  cron job can all overlap safely.
+- **Bounded catch-up.** `CatchUpDays` is 7. Coming back from two weeks away gives
+  you the last week of missed occurrences, not fourteen stale standups — and not
+  nothing, which would silently lose a weekly report that came due while the
+  server was down. Occurrences older than the window are counted as `missed`.
+- **Anchored at `starts_on`.** `DTSTART` comes from the template, so a weekly rule
+  keeps its weekday instead of drifting to whenever the spawner first ran.
+- **Timezone-correct.** Occurrence dates are computed in the template's own zone,
+  because `occurrence_on` is a plain date and the same instant is a different day
+  either side of the date line.
+
+A series that reaches `ends_on`, or exhausts a `COUNT=`, is deactivated rather
+than deleted: the tasks it already spawned are real history and a deleted template
+would orphan them. One unparseable rule is logged and skipped without stopping the
+other templates.
+
+The spawner is the one component that steps outside the per-user store convention
+— it walks every account — so each row it writes takes its `user_id` from the
+template. There is a test for exactly that.
 
 ### Inbox
 
@@ -430,9 +464,22 @@ identifier and its metadata document are already in place for it.
 
 Also outstanding:
 
-- **The recurrence spawner.** `recurrences` rows are stored and validated, but
-  nothing materializes occurrences yet, so a recurring task never appears. Needs
-  an RRULE evaluator and a scheduler tick; the unique index on
-  `(recurrence_id, occurrence_on)` already makes spawning idempotent.
 - **Apple sign-in.** The OIDC layer is provider-agnostic; only Google is wired.
 - **The Tanstack frontend**, to be embedded via `embed.FS`.
+
+## A sqlite footgun that bit twice
+
+`ON CONFLICT` against a **partial** unique index must repeat the index predicate
+in the conflict target:
+
+```sql
+ON CONFLICT (recurrence_id, occurrence_on)
+  WHERE recurrence_id IS NOT NULL AND occurrence_on IS NOT NULL
+DO NOTHING
+```
+
+Omitting the `WHERE` does not degrade to a plain insert — it matches no constraint
+at all and the statement fails outright. Several indexes here are partial (to make
+soft deletes free a slug, or to exclude nulls), so any new upsert against one needs
+the predicate copied across. This is what made the first spawner run create zero
+tasks while reporting every template as failed.

@@ -285,6 +285,41 @@ func TestUnauthorizedChallenge(t *testing.T) {
 	}
 }
 
+// TestChallengeScopeMatchesTheMethod pins a fix: the 401 on an unauthenticated
+// write used to advertise scope="read". A client following that challenge would
+// authorize, receive a read-only token, and fail its very next request with
+// insufficient_scope, sending the user through consent twice for one operation.
+func TestChallengeScopeMatchesTheMethod(t *testing.T) {
+	h := newHarness(t)
+
+	cases := map[string]struct {
+		method    string
+		body      any
+		wantScope string
+	}{
+		"read on a GET":            {http.MethodGet, nil, `scope="read"`},
+		"read and write on a POST": {http.MethodPost, map[string]any{"title": "x"}, `scope="read write"`},
+		"read and write on DELETE": {http.MethodDelete, nil, `scope="read write"`},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			res := h.do(tc.method, "/v1/tasks", "", tc.body)
+
+			// DELETE without an id is a 404 route, so aim it at one that exists.
+			if tc.method == http.MethodDelete {
+				res = h.do(tc.method, "/v1/tasks/whatever", "", nil)
+			}
+
+			res.expect(http.StatusUnauthorized)
+
+			if challenge := res.Header.Get("WWW-Authenticate"); !strings.Contains(challenge, tc.wantScope) {
+				t.Errorf("challenge = %q, want it to contain %s", challenge, tc.wantScope)
+			}
+		})
+	}
+}
+
 func TestInsufficientScopeChallenge(t *testing.T) {
 	h := newHarness(t)
 	u := h.user("you@example.com")
@@ -1019,6 +1054,74 @@ func TestGrantsListedAndRevocable(t *testing.T) {
 	if items := h.doCookie(http.MethodGet, "/v1/grants", session, nil).
 		expect(http.StatusOK).list(); len(items) != 0 {
 		t.Errorf("grants = %d after revocation, want 0", len(items))
+	}
+}
+
+// TestReconsentReusesTheGrant exercises the ON CONFLICT path on oauth_grants,
+// whose conflict target is a partial unique index. A client reconnecting must
+// update its existing consent rather than fail on the index or accumulate
+// duplicates.
+func TestReconsentReusesTheGrant(t *testing.T) {
+	h := newHarness(t)
+	u := h.user("you@example.com")
+	session := h.session(u)
+
+	const redirectURI = "http://127.0.0.1:41234/callback"
+
+	clientID := h.registerClient(redirectURI)
+
+	// First connection, with both scopes.
+	first := h.consent(session, clientID, redirectURI, nil)
+	h.exchange(clientID, codeFrom(t, first), testVerifier, redirectURI).expect(http.StatusOK)
+
+	grants := h.doCookie(http.MethodGet, "/v1/grants", session, nil).
+		expect(http.StatusOK).list()
+	if len(grants) != 1 {
+		t.Fatalf("grants = %d after the first consent, want 1", len(grants))
+	}
+
+	grantID, _ := grants[0]["id"].(string)
+
+	// The same client reconnects, this time asking for less.
+	second := h.consent(session, clientID, redirectURI, url.Values{"scope": {"read"}})
+
+	body := h.exchange(clientID, codeFrom(t, second), testVerifier, redirectURI).
+		expect(http.StatusOK).decode()
+
+	if got := body["scope"]; got != "read" {
+		t.Errorf("scope = %v after reconsenting to read only, want read", got)
+	}
+
+	grants = h.doCookie(http.MethodGet, "/v1/grants", session, nil).
+		expect(http.StatusOK).list()
+
+	if len(grants) != 1 {
+		t.Fatalf("grants = %d after reconsent, want the one grant updated in place", len(grants))
+	}
+
+	if grants[0]["id"] != grantID {
+		t.Errorf("grant id changed from %v to %v; the consent should be updated, not replaced",
+			grantID, grants[0]["id"])
+	}
+
+	// The narrower consent is what is recorded, not the union with the old one.
+	scopes, _ := grants[0]["scopes"].([]any)
+	if len(scopes) != 1 || scopes[0] != "read" {
+		t.Errorf("recorded scopes = %v, want just read; a reconsent must not silently keep "+
+			"a wider grant the user was not shown", scopes)
+	}
+
+	// And a fresh authorization after revoking works, since the unique index is
+	// partial on revoked_at.
+	h.doCookie(http.MethodDelete, "/v1/grants/"+grantID, session, nil).
+		expect(http.StatusNoContent)
+
+	third := h.consent(session, clientID, redirectURI, nil)
+	h.exchange(clientID, codeFrom(t, third), testVerifier, redirectURI).expect(http.StatusOK)
+
+	if items := h.doCookie(http.MethodGet, "/v1/grants", session, nil).
+		expect(http.StatusOK).list(); len(items) != 1 {
+		t.Errorf("grants = %d after revoke and re-authorize, want 1", len(items))
 	}
 }
 
