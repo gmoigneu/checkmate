@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/nls/checkmate/server/internal/model"
 	"github.com/nls/checkmate/server/internal/patch"
 	"github.com/nls/checkmate/server/internal/store"
 )
@@ -52,8 +54,21 @@ func (s *Server) handleListRecurrences(w http.ResponseWriter, r *http.Request) {
 	f := store.RecurrenceFilter{
 		ContextID: p.str("context_id"),
 		Active:    p.booleanPtr("active"),
+		State:     p.enum("state", model.RecurrenceStates),
 	}
 	f.IncludeDeleted, f.Limit, f.Cursor = p.listOptions()
+
+	// active and state describe the same thing at different resolutions, and the
+	// store applies both, so together they can contradict: ?active=true&state=finished
+	// asks for a series that is running and over at once and would answer with an
+	// empty 200. That leaves the caller debugging their own query, so say what is
+	// wrong instead. Redundant-but-consistent pairs (active=false&state=paused) are
+	// fine, because a UI may well set one from a toggle and the other from a filter.
+	if f.Active != nil && f.State != "" && *f.Active != (f.State == model.RecurrenceActive) {
+		p.errors.add("state", fmt.Sprintf(
+			"contradicts active=%t, because state=%s means active=%t",
+			*f.Active, f.State, f.State == model.RecurrenceActive))
+	}
 
 	if err := p.done(); err != nil {
 		s.writeStoreError(w, r, err)
@@ -147,7 +162,7 @@ func (s *Server) handleCreateRecurrence(w http.ResponseWriter, r *http.Request) 
 	s.spawnNow(r, ident.UserID, created.ID)
 
 	w.Header().Set("Location", "/v1/recurrences/"+created.ID)
-	s.writeJSON(w, r, http.StatusCreated, created)
+	s.writeJSON(w, r, http.StatusCreated, s.afterSpawn(r, ident.UserID, created))
 }
 
 // spawnNow materializes a template's due occurrences immediately.
@@ -176,6 +191,28 @@ func (s *Server) spawnNow(r *http.Request, userID, recurrenceID string) {
 			slog.String("recurrence_id", recurrenceID),
 			slog.Int("created", result.Created))
 	}
+}
+
+// afterSpawn re-reads a template once the spawner has run on it.
+//
+// The spawner writes to the same row it was handed -- advancing
+// next_occurrence_on, stamping last_spawned_on, and retiring the series if the rule
+// is spent -- so the copy read before it ran is already stale by the time the
+// response is written. Returning that copy would tell a client a series is active
+// when the server has just finished it.
+//
+// Best effort: if the re-read fails the pre-spawn copy is still a truthful
+// representation of the write the caller asked for, just missing what happened next.
+func (s *Server) afterSpawn(r *http.Request, userID string, fallback model.Recurrence) model.Recurrence {
+	fresh, err := s.store.GetRecurrence(r.Context(), userID, fallback.ID)
+	if err != nil {
+		s.log.Warn("could not re-read a recurrence after spawning",
+			slog.String("recurrence_id", fallback.ID), slog.Any("error", err))
+
+		return fallback
+	}
+
+	return fresh
 }
 
 func (s *Server) handleUpdateRecurrence(w http.ResponseWriter, r *http.Request) {
@@ -246,7 +283,7 @@ func (s *Server) handleUpdateRecurrence(w http.ResponseWriter, r *http.Request) 
 
 	s.spawnNow(r, ident.UserID, updated.ID)
 
-	s.writeJSON(w, r, http.StatusOK, updated)
+	s.writeJSON(w, r, http.StatusOK, s.afterSpawn(r, ident.UserID, updated))
 }
 
 func (s *Server) handleDeleteRecurrence(w http.ResponseWriter, r *http.Request) {

@@ -408,6 +408,7 @@ type briefResponse struct {
 	Inbox          []map[string]any `json:"inbox"`
 	Blocked        []map[string]any `json:"blocked"`
 	CompletedToday []map[string]any `json:"completed_today"`
+	CancelledToday []map[string]any `json:"cancelled_today"`
 	WaitingOn      []struct {
 		PersonID   string           `json:"person_id"`
 		PersonName string           `json:"person_name"`
@@ -422,6 +423,7 @@ type briefResponse struct {
 		WaitingOn              int `json:"waiting_on"`
 		InProgress             int `json:"in_progress"`
 		CompletedToday         int `json:"completed_today"`
+		CancelledToday         int `json:"cancelled_today"`
 		PlannedMinutes         int `json:"planned_minutes"`
 		PlannedWithoutEstimate int `json:"planned_without_estimate"`
 	} `json:"totals"`

@@ -66,6 +66,16 @@ func (h *Handler) addWriteTools(server *mcp.Server) {
 	}), h.completeTask)
 
 	mcp.AddTool(server, write(&mcp.Tool{
+		Name:  "cancel_task",
+		Title: "Cancel a task",
+		Description: "Close a task by deciding not to do it. Distinct from " +
+			"complete_task, which means the work was done, and from delete_task, " +
+			"which removes the record entirely. Use this when the user says they are " +
+			"not going to do something but wants to remember that they decided so.",
+		Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
+	}), h.cancelTask)
+
+	mcp.AddTool(server, write(&mcp.Tool{
 		Name:  "delete_task",
 		Title: "Delete a task",
 		Description: "Delete a task and its subtasks. Prefer complete_task for work " +
@@ -315,6 +325,44 @@ func (h *Handler) completeTask(
 	}
 
 	return h.taskOutcome(ctx, userID, task, "Completed")
+}
+
+type cancelTaskInput struct {
+	TaskID string `json:"task_id" jsonschema:"the task to cancel"`
+}
+
+// cancelTask closes a task as not-doing.
+//
+// Its own tool rather than update_task with a status, for the same reason
+// complete_task is: "I'm not going to do that" is a distinct and common
+// instruction, and a model reaches for a named verb far more reliably than for a
+// status enum it has to remember the spelling of.
+func (h *Handler) cancelTask(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	in cancelTaskInput,
+) (*mcp.CallToolResult, taskResult, error) {
+	userID, _, scopes, err := caller(ctx)
+	if err != nil {
+		return nil, taskResult{}, err
+	}
+
+	if err := requireWrite(scopes); err != nil {
+		return toolError("%v", err), taskResult{}, nil
+	}
+
+	if in.TaskID == "" {
+		return toolError("task_id is required"), taskResult{}, nil
+	}
+
+	task, err := h.store.UpdateTask(ctx, userID, in.TaskID, store.TaskUpdate{
+		Status: patch.Field[string]{Set: true, Value: model.StatusCancelled},
+	})
+	if err != nil {
+		return h.storeToolError(err), taskResult{}, nil
+	}
+
+	return h.taskOutcome(ctx, userID, task, "Cancelled")
 }
 
 type deleteTaskInput struct {
@@ -615,7 +663,7 @@ func (h *Handler) createRecurrence(
 		ContextID:   refreshed.ContextID,
 		ContextName: l.contexts[refreshed.ContextID],
 		Timezone:    refreshed.Timezone,
-		Active:      refreshed.Active,
+		State:       refreshed.State,
 	}
 
 	if refreshed.NextOccurrenceOn != nil {

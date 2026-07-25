@@ -85,6 +85,14 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		f.TopLevelOnly = true
 	}
 
+	// The same overlap the review found on recurrences: naming a parent while also
+	// asking for top-level only is contradictory, and the store resolves it by
+	// silently dropping the parent. Discarding a filter the caller supplied is worse
+	// than refusing the request.
+	if f.ParentID != "" && p.boolean("top_level") {
+		p.errors.add("top_level", "contradicts parent_id, which names a parent to look under")
+	}
+
 	f.IncludeDeleted, f.Limit, f.Cursor = p.listOptions()
 
 	if err := p.done(); err != nil {

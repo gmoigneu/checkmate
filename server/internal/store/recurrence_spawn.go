@@ -148,6 +148,11 @@ func (s *Store) SpawnOccurrence(ctx context.Context, template DueRecurrence, occ
 // nextOn is nil when the series is finished. deactivate flips active off rather
 // than deleting the row, because the occurrences it already spawned are real
 // tasks with real history and a deleted template would orphan them.
+//
+// Deactivating here always means the series ran out -- the spawner only looks at
+// active templates, so it never sees a paused one -- and that is what stamps
+// completed_at. A person pausing a series leaves completed_at null, which is how
+// the two become distinguishable.
 func (s *Store) AdvanceRecurrence(
 	ctx context.Context,
 	recurrenceID string,
@@ -155,8 +160,13 @@ func (s *Store) AdvanceRecurrence(
 	deactivate bool,
 ) error {
 	active := 1
+	completedAt := "completed_at"
+
 	if deactivate {
 		active = 0
+
+		// coalesce so a series retired twice keeps the first timestamp.
+		completedAt = "coalesce(completed_at, " + nowExpr + ")"
 	}
 
 	_, err := s.db.ExecContext(ctx,
@@ -164,6 +174,7 @@ func (s *Store) AdvanceRecurrence(
 		 SET next_occurrence_on = ?,
 		     last_spawned_on = coalesce(?, last_spawned_on),
 		     active = ?,
+		     completed_at = `+completedAt+`,
 		     updated_at = `+nowExpr+`
 		 WHERE id = ?`,
 		nextOn, lastSpawnedOn, active, recurrenceID,

@@ -215,6 +215,12 @@ type briefOutput struct {
 	Inbox      []taskView        `json:"inbox"`
 	Blocked    []taskView        `json:"blocked"`
 	WaitingOn  []waitingOnView   `json:"waiting_on"`
+
+	// CompletedToday and CancelledToday are both closed work, kept apart because
+	// finishing something and deciding against it are different answers to "how did
+	// today go".
+	CompletedToday []taskView `json:"completed_today"`
+	CancelledToday []taskView `json:"cancelled_today"`
 }
 
 type waitingOnView struct {
@@ -288,6 +294,9 @@ func (h *Handler) addReadTools(server *mcp.Server) {
 			Inbox:      views(brief.Inbox),
 			Blocked:    views(brief.Blocked),
 			WaitingOn:  make([]waitingOnView, 0, len(brief.WaitingOn)),
+
+			CompletedToday: views(brief.CompletedToday),
+			CancelledToday: views(brief.CancelledToday),
 		}
 
 		for _, group := range brief.WaitingOn {
@@ -361,6 +370,10 @@ func briefSummary(b briefOutput) string {
 	fmt.Fprintf(&sb, "- %d untriaged in the inbox, %d completed today\n",
 		b.Totals.Inbox, b.Totals.CompletedToday)
 
+	if b.Totals.CancelledToday > 0 {
+		fmt.Fprintf(&sb, "- %d cancelled today\n", b.Totals.CancelledToday)
+	}
+
 	if b.Totals.Planned > 0 {
 		fmt.Fprintf(&sb, "- %d minutes estimated for today", b.Totals.PlannedMinutes)
 
@@ -386,7 +399,7 @@ type listTasksInput struct {
 	DueBefore     string   `json:"due_before,omitempty" jsonschema:"only tasks due on or before this YYYY-MM-DD date"`
 	DueAfter      string   `json:"due_after,omitempty" jsonschema:"only tasks due on or after this YYYY-MM-DD date"`
 	Query         string   `json:"query,omitempty" jsonschema:"free text searched in titles and details"`
-	IncludeDone   bool     `json:"include_done,omitempty" jsonschema:"include completed and cancelled tasks; they are excluded by default"`
+	IncludeClosed bool     `json:"include_closed,omitempty" jsonschema:"include closed tasks, meaning both done and cancelled; they are excluded by default"`
 	Limit         int      `json:"limit,omitempty" jsonschema:"maximum tasks to return, 1 to 200, default 50"`
 }
 
@@ -467,7 +480,7 @@ func (h *Handler) listTasks(
 	case len(in.Status) > 0:
 		filter.Status = in.Status
 
-	case !in.IncludeDone:
+	case !in.IncludeClosed:
 		// Done and cancelled are excluded unless asked for: a model reasoning
 		// about what is left should not have to filter history out itself.
 		filter.Status = []string{
@@ -696,7 +709,11 @@ type recurrenceView struct {
 	ContextName      string `json:"context_name,omitempty"`
 	Timezone         string `json:"timezone"`
 	NextOccurrenceOn string `json:"next_occurrence_on,omitempty"`
-	Active           bool   `json:"active"`
+
+	// State is the useful one: "active", "paused" if the user turned it off, or
+	// "finished" if it ran out. Resuming a finished series does nothing unless the
+	// rule changes too, so a model should not offer it as a fix.
+	State string `json:"state" jsonschema:"active, paused or finished"`
 }
 
 type listRecurrencesOutput struct {
@@ -733,7 +750,7 @@ func (h *Handler) listRecurrences(
 			ContextID:   r.ContextID,
 			ContextName: l.contexts[r.ContextID],
 			Timezone:    r.Timezone,
-			Active:      r.Active,
+			State:       r.State,
 		}
 
 		if r.NextOccurrenceOn != nil {

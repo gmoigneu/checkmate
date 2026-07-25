@@ -1182,11 +1182,36 @@ are closed; the design should assume the resolved behaviour.
 
 **Still open, and needing design input rather than engineering:**
 
-11. **`active: false` on a recurrence conflates paused and finished.** `W13`/`W13b`
-    cannot currently distinguish "I paused this" from "this series ended". Say whether
-    that matters enough to add a column.
-12. **`cancelled` has no UI convention yet.** It is distinct from `done` and from
-    deleted in the data; decide how it reads.
+11. ~~`active: false` conflates paused and finished~~ → **resolved.** A recurrence
+    now carries a derived `state` of `active`, `paused` or `finished`, filterable with
+    `?state=`. `W13` can separate the two lists; `W13b` should present `finished` as
+    over rather than offering a resume that does nothing. Note the edge: resuming a
+    finished series is accepted but only has an effect if the rule changes too, so
+    the affordance is "resume and edit the rule", not "resume".
+
+    Series that were already inactive read as `paused`, because nothing recorded why
+    they stopped — the forgiving default.
+
+12. ~~`cancelled` has no UI convention~~ → **resolved, and it needs three states in
+    the design, not two.** `done` means the work happened; `cancelled` means it was
+    decided against; deleted means the record should not exist. All three are
+    distinct in the data and now in the API:
+
+    - The brief has a `cancelled_today` bucket alongside `completed_today`, counted
+      separately in `totals`. **Cancelled is not progress** — do not fold it into a
+      "closed today" number or a completion meter.
+    - Cancelled tasks appear in no open bucket, so `cancelled_today` is the only
+      place they surface. Design it as part of the collapsed "today's evidence"
+      section, distinct from Done.
+    - The completion control (§5.2 component 2) already had to expose cancel as
+      distinct from complete. It now has a real destination.
+    - MCP gained a `cancel_task` tool, so an assistant can decline work without
+      deleting it.
+
+**Still open and needing design input:**
+
+13. **Nothing distinguishes a paused series a person will resume from one they have
+    abandoned.** `paused` covers both. Say whether that is worth an archive state.
 
 ---
 
