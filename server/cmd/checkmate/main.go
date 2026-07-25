@@ -28,6 +28,7 @@ import (
 	"github.com/nls/checkmate/server/internal/oauth"
 	"github.com/nls/checkmate/server/internal/recurrence"
 	"github.com/nls/checkmate/server/internal/store"
+	"github.com/nls/checkmate/server/internal/web"
 )
 
 // version is overridden at build time:
@@ -58,9 +59,6 @@ Environment:
   CHECKMATE_SECURE_COOKIES       Secure flag on cookies    (default: not in dev)
   CHECKMATE_SESSION_IDLE_TIMEOUT sliding session expiry    (default 336h)
   CHECKMATE_SESSION_MAX_LIFETIME hard session ceiling      (default 2160h)
-  CHECKMATE_ALLOWED_EMAILS       comma-separated addresses or @domains that may
-                                 have an account provisioned by sign-in.
-                                 EMPTY MEANS NO NEW ACCOUNTS.
   CHECKMATE_GOOGLE_CLIENT_ID     Google OAuth client id
   CHECKMATE_GOOGLE_CLIENT_SECRET Google OAuth client secret
   CHECKMATE_DEFAULT_TIMEZONE     zone for new accounts     (default UTC)
@@ -151,10 +149,6 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 				slog.String("redirect_uri", login.RedirectURI(cfg.BaseURL, provider)))
 		}
 
-		if len(cfg.AllowedEmails) == 0 {
-			log.Warn("no CHECKMATE_ALLOWED_EMAILS set: existing users can sign in, " +
-				"but no new accounts will be provisioned")
-		}
 	} else {
 		log.Info("no sign-in provider configured; bearer tokens are the only credential")
 	}
@@ -215,7 +209,7 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(st, loginSvc, oauthSvc, spawner, mcpHandler, cfg, log, version).Handler(),
+		Handler:           web.WithUI(httpapi.New(st, loginSvc, oauthSvc, spawner, mcpHandler, cfg, log, version).Handler()),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
@@ -416,17 +410,6 @@ func userCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []st
 	}
 
 	fmt.Printf("created user %s <%s>\n", u.ID, u.Email)
-	fmt.Printf("seeded contexts: ")
-
-	for i, c := range account.DefaultContexts {
-		if i > 0 {
-			fmt.Print(", ")
-		}
-
-		fmt.Print(c.Name)
-	}
-
-	fmt.Println()
 
 	if *tokenName != "" {
 		secret, err := account.CreateToken(ctx, db, u.ID, *tokenName, "")

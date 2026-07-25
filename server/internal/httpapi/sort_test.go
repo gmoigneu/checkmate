@@ -315,9 +315,8 @@ func TestSortCombinesWithFilters(t *testing.T) {
 	h := newHarness(t)
 	u := h.user("you@example.com")
 
-	contexts := h.do(http.MethodGet, "/v1/contexts", u.Token, nil).expect(http.StatusOK).list()
-	first, _ := contexts[0]["id"].(string)
-	second, _ := contexts[1]["id"].(string)
+	first := h.firstContextID(u)
+	second := h.createContextID(u, "second context")
 
 	h.do(http.MethodPost, "/v1/tasks", u.Token, map[string]any{
 		"title": "in first, late", "context_id": first, "due_on": "2026-08-09",

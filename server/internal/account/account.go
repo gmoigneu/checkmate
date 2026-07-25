@@ -1,4 +1,4 @@
-// Package account creates users, their starting contexts, and API tokens.
+// Package account creates users and API tokens.
 //
 // Checkmate has no signup flow yet: these are driven from the CLI so there is a
 // way to get a usable database before the HTTP handlers exist.
@@ -27,19 +27,6 @@ const TokenPrefix = "cm_"
 // the owner's own data. Read covers GET, write covers every mutation.
 const DefaultScopes = "read write"
 
-// DefaultContexts are the buckets tasks arrive into (brief section A). Created
-// with every new user; rename or delete them freely afterwards.
-var DefaultContexts = []struct {
-	Name  string
-	Slug  string
-	Color string
-}{
-	{"Upsun", "upsun", "#6b46c1"},
-	{"Personal", "personal", "#2f855a"},
-	{"Gaal", "gaal", "#c05621"},
-	{"Arkea", "arkea", "#2b6cb0"},
-}
-
 // User is a Checkmate account.
 type User struct {
 	ID       string
@@ -53,8 +40,8 @@ var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 // ErrEmailTaken is returned when an account already exists for that address.
 var ErrEmailTaken = errors.New("account: email already registered")
 
-// CreateUser inserts a user together with the default set of contexts, in one
-// transaction. timezone may be empty, in which case UTC is used.
+// CreateUser inserts a user in one transaction. timezone may be empty, in which
+// case UTC is used.
 func CreateUser(ctx context.Context, db *sql.DB, email, name, timezone string) (User, error) {
 	email = strings.TrimSpace(email)
 	name = strings.TrimSpace(name)
@@ -96,17 +83,6 @@ func CreateUser(ctx context.Context, db *sql.DB, email, name, timezone string) (
 	)
 	if err != nil {
 		return User{}, fmt.Errorf("account: insert user: %w", err)
-	}
-
-	for i, c := range DefaultContexts {
-		_, err = tx.ExecContext(ctx,
-			`INSERT INTO contexts (id, user_id, name, slug, color, sort_order)
-			 VALUES (?, ?, ?, ?, ?, ?)`,
-			id.New(), u.ID, c.Name, c.Slug, c.Color, (i+1)*10,
-		)
-		if err != nil {
-			return User{}, fmt.Errorf("account: insert context %s: %w", c.Slug, err)
-		}
 	}
 
 	if err := tx.Commit(); err != nil {

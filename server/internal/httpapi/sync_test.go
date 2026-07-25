@@ -37,12 +37,12 @@ func TestSyncFullThenIncremental(t *testing.T) {
 	h := newHarness(t)
 	u := h.user("you@example.com")
 
-	// A full sync from zero carries the seeded contexts and the static source
+	// A full sync from zero carries the fixture context and the static source
 	// lookup, which a fresh client needs before it can render anything.
 	full := h.sync(u, "?since=0")
 
-	if len(full.Changes.Contexts) != 4 {
-		t.Errorf("full sync returned %d contexts, want 4", len(full.Changes.Contexts))
+	if len(full.Changes.Contexts) != 1 {
+		t.Errorf("full sync returned %d contexts, want 1", len(full.Changes.Contexts))
 	}
 
 	if len(full.Sources) != 6 {
@@ -151,10 +151,10 @@ func TestSyncIsScopedToOwner(t *testing.T) {
 		}
 	}
 
-	// Bob still gets his own four contexts, so the feed is scoped rather than
+	// Bob still gets his own fixture context, so the feed is scoped rather than
 	// broken.
-	if len(page.Changes.Contexts) != 4 {
-		t.Errorf("bob sees %d contexts, want his own 4", len(page.Changes.Contexts))
+	if len(page.Changes.Contexts) != 1 {
+		t.Errorf("bob sees %d contexts, want his own 1", len(page.Changes.Contexts))
 	}
 }
 
@@ -573,9 +573,8 @@ func TestBriefExplicitDateAndContext(t *testing.T) {
 	h := newHarness(t)
 	u := h.user("you@example.com")
 
-	contexts := h.do(http.MethodGet, "/v1/contexts", u.Token, nil).expect(http.StatusOK).list()
-	first, _ := contexts[0]["id"].(string)
-	second, _ := contexts[1]["id"].(string)
+	first := h.firstContextID(u)
+	second := h.createContextID(u, "second context")
 
 	const day = "2026-08-15"
 

@@ -12,9 +12,8 @@ make run
 curl -s localhost:8080/healthz
 ```
 
-`user create` seeds the four contexts from the brief (Upsun, Personal, Gaal,
-Arkea) and, with `-token`, prints an API token once. Only the token's SHA-256 is
-stored, so copy it there and then.
+With `-token`, `user create` prints an API token once. Only the token's SHA-256
+is stored, so copy it there and then.
 
 ## Layout
 
@@ -25,7 +24,7 @@ internal/database        sqlite connection, embedded goose migrations
 internal/database/migrations
 internal/model           domain types shared by store and HTTP
 internal/store           all SQL; every method takes a user id and scopes by it
-internal/account         user / context seeding, API token issuing
+internal/account         user and API token issuing
 internal/login           federated sign-in (OIDC client)
 internal/oauth           OAuth 2.1 authorization server, CIMD fetching
 internal/recurrence      RRULE evaluation and the occurrence spawner
@@ -48,7 +47,7 @@ internal/id              UUIDv7 generation
 
 Four axes, kept deliberately separate:
 
-- **context** — Upsun / Personal / Gaal / Arkea. The bucket a task belongs to.
+- **context** — a top-level bucket a task belongs to.
 - **source** — where the task came from: self, email, slack, google_chat,
   meeting, phone. A shared lookup, not per-context, because the same names
   repeat under every context.
@@ -206,7 +205,6 @@ it.
 | `CHECKMATE_SECURE_COOKIES` | true outside dev | `Secure` flag on the session cookie |
 | `CHECKMATE_SESSION_IDLE_TIMEOUT` | `336h` (14d) | Sliding session expiry |
 | `CHECKMATE_SESSION_MAX_LIFETIME` | `2160h` (90d) | Hard session ceiling |
-| `CHECKMATE_ALLOWED_EMAILS` | empty | Who may be provisioned by sign-in. Empty means nobody |
 | `CHECKMATE_GOOGLE_CLIENT_ID` | — | Enables Google sign-in when set together with the secret |
 | `CHECKMATE_GOOGLE_CLIENT_SECRET` | — | |
 | `CHECKMATE_DEFAULT_TIMEZONE` | `UTC` | Zone for newly provisioned accounts |
@@ -247,19 +245,11 @@ POST /v1/tokens                session-only; returns the secret once
 DELETE /v1/tokens/{id}
 ```
 
-### Provisioning is gated by default
+### Automatic provisioning
 
-`CHECKMATE_ALLOWED_EMAILS` decides who may have an account created for them by a
-federated sign-in. **Empty means nobody**: existing users can still sign in, but
-no new account is created. Without that, a public deployment plus "sign in with
-Google" hands an account to everyone on the internet who has one. Entries are
-addresses, or `@domain.com` to admit a whole domain.
-
-```sh
-CHECKMATE_ALLOWED_EMAILS="you@example.com,@yourcompany.com"
-```
-
-`checkmate user create` remains the bootstrap path and ignores the allowlist.
+A successful federated sign-in creates a Checkmate account on first use. The
+provider must verify the email address, and later sign-ins are bound to the
+provider's stable subject claim rather than the mutable email address.
 
 ### Session lifetime
 

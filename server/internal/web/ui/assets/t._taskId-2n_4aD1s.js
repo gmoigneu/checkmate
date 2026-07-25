@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/t._taskId-Ba0TYJ6k.js","assets/dist-CaejBv-z.js","assets/checkmate-app-4stgBr3R.js","assets/api-Bf9SFSKI.js","assets/dist-DuvrP0Sg.js"])))=>i.map(i=>d[i]);
+import{n as e,r as t,t as n}from"./preload-helper-C7g3hz7K.js";var r=t(`/t/$taskId`)({component:e(()=>n(()=>import(`./t._taskId-Ba0TYJ6k.js`),__vite__mapDeps([0,1,2,3,4])),`component`)});export{r as t};

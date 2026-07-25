@@ -115,7 +115,7 @@ func (h *harness) session(u testUser) string {
 	return secret
 }
 
-// user creates an account with a full-scope token.
+// user creates an account, a fixture context, and a full-scope token.
 func (h *harness) user(email string) testUser {
 	h.t.Helper()
 
@@ -126,12 +126,23 @@ func (h *harness) user(email string) testUser {
 		h.t.Fatalf("create user %s: %v", email, err)
 	}
 
+	if _, err := h.store.CreateContext(ctx, u.ID, store.ContextCreate{Name: "Test context"}); err != nil {
+		h.t.Fatalf("create fixture context for %s: %v", email, err)
+	}
+
 	token, err := account.CreateToken(ctx, h.store.DB(), u.ID, "test", "")
 	if err != nil {
 		h.t.Fatalf("create token for %s: %v", email, err)
 	}
 
 	return testUser{ID: u.ID, Email: u.Email, Token: token}
+}
+
+func (h *harness) createContextID(u testUser, name string) string {
+	h.t.Helper()
+
+	return h.do(http.MethodPost, "/v1/contexts", u.Token, map[string]any{"name": name}).
+		expect(http.StatusCreated).id()
 }
 
 // tokenWithScopes issues an extra token for u limited to scopes.
@@ -330,13 +341,13 @@ func (r response) fields() map[string]string {
 	return out.Fields
 }
 
-// firstContextID returns the id of one of the user's seeded contexts.
+// firstContextID returns the id of the user's fixture context.
 func (h *harness) firstContextID(u testUser) string {
 	h.t.Helper()
 
 	items := h.do(http.MethodGet, "/v1/contexts", u.Token, nil).expect(http.StatusOK).list()
 	if len(items) == 0 {
-		h.t.Fatal("user has no seeded contexts")
+		h.t.Fatal("user has no fixture contexts")
 	}
 
 	id, _ := items[0]["id"].(string)
@@ -525,12 +536,12 @@ func TestListsAreScopedToOwner(t *testing.T) {
 		t.Errorf("bob sees %d tasks, want 0", len(items))
 	}
 
-	// Contexts are seeded per user, so both have four of their own and none of
-	// each other's.
+	// The harness creates one context for each fixture user, so neither should
+	// see the other's context.
 	for _, u := range []testUser{alice, bob} {
 		items := h.do(http.MethodGet, "/v1/contexts", u.Token, nil).expect(http.StatusOK).list()
-		if len(items) != len(account.DefaultContexts) {
-			t.Errorf("%s sees %d contexts, want %d", u.Email, len(items), len(account.DefaultContexts))
+		if len(items) != 1 {
+			t.Errorf("%s sees %d contexts, want 1", u.Email, len(items))
 		}
 	}
 }
@@ -608,9 +619,8 @@ func TestProjectMustBelongToTaskContext(t *testing.T) {
 	h := newHarness(t)
 	u := h.user("you@example.com")
 
-	contexts := h.do(http.MethodGet, "/v1/contexts", u.Token, nil).expect(http.StatusOK).list()
-	first, _ := contexts[0]["id"].(string)
-	second, _ := contexts[1]["id"].(string)
+	first := h.firstContextID(u)
+	second := h.createContextID(u, "second context")
 
 	project := h.do(http.MethodPost, "/v1/projects", u.Token, map[string]any{
 		"context_id": first, "name": "in the first context",

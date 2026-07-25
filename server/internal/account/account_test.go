@@ -31,7 +31,7 @@ func newTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func TestCreateUserSeedsContexts(t *testing.T) {
+func TestCreateUserDoesNotSeedContexts(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
 
@@ -49,8 +49,8 @@ func TestCreateUserSeedsContexts(t *testing.T) {
 		t.Fatalf("count contexts: %v", err)
 	}
 
-	if want := len(account.DefaultContexts); count != want {
-		t.Errorf("seeded contexts = %d, want %d", count, want)
+	if count != 0 {
+		t.Errorf("contexts = %d, want 0", count)
 	}
 
 	var tz string

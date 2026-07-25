@@ -5,13 +5,16 @@ LDFLAGS  := -X main.version=$(VERSION)
 
 export CHECKMATE_DB_PATH ?= ./data/checkmate.db
 
-.PHONY: help build run test test-race lint tidy migrate-up migrate-down migrate-status clean
+.PHONY: help build run test test-race lint tidy migrate-up migrate-down migrate-status clean web
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-build: ## Build the server binary
+build: web ## Build the server binary
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
+
+web: ## Build the embedded TanStack frontend
+	npm --prefix ../web run build
 
 run: ## Run the API server
 	go run -ldflags "$(LDFLAGS)" $(PKG) serve
