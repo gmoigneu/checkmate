@@ -407,11 +407,27 @@ successful write look identical from the client side.
 `context_id`, `project_id`, `parent_id`, `delegated_to_id`, `recurrence_id`,
 `planned_on`, `planned_before`, `planned_after`, `due_on`, `due_before`,
 `due_after`, `q` (title and details), `top_level`, `include_deleted`, `limit`
-(max 200), `cursor`.
+(max 200), `cursor`, plus `sort` and `order`.
 
 `?context_id=null` is the inbox. `?project_id=null` and `?parent_id=null` work
-the same way. Listings are ordered newest first by id; `sort_order` on contexts
-is a display hint for clients.
+the same way.
+
+### Sorting
+
+`sort` accepts `created_at` (default), `updated_at`, `due_on`, `planned_on`,
+`title`, `estimate_minutes`, `completed_at` and `status`; `order` is `asc` or
+`desc`. The direction defaults to `desc` for `created_at` — newest first — and
+`asc` for everything else, so the soonest date leads.
+
+Rows with no value for the sort column always come last, in both directions:
+"sorted by due date" opening with undated tasks would be useless either way.
+
+Pagination is keyset rather than offset, so it does not drift when rows change
+between pages — an offset would silently skip or repeat a task. `next_cursor` is
+opaque and **bound to the sort that issued it**: reusing one under a different
+`sort` or `order` is a 422, because the same position means nothing under a
+different ordering. `TestSortedPaginationLosesNothing` walks every sort at a page
+size of two and asserts the paged sequence matches a single unpaginated read.
 
 ### Convenience
 

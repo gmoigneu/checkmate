@@ -71,6 +71,8 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		DueAfter:      p.date("due_after"),
 		Search:        p.str("q"),
 		TopLevelOnly:  p.boolean("top_level"),
+		Sort:          p.enum("sort", store.SortFields),
+		Order:         p.enum("order", store.SortOrders),
 	}
 
 	f.ContextID, f.ContextIsNull = p.nullableID("context_id")

@@ -208,6 +208,11 @@ func (s *Server) handleUpdateRecurrence(w http.ResponseWriter, r *http.Request) 
 		v.add("active", "cannot be null")
 	}
 
+	// NOT NULL in the schema; see the note on sort_order in contexts.go.
+	if req.LeadDays.Set && req.LeadDays.Null {
+		v.add("lead_days", "cannot be null")
+	}
+
 	if req.StartsOn.Present() && req.EndsOn.Present() {
 		checkDateOrder(v, "starts_on", req.StartsOn.Value, "ends_on", &req.EndsOn.Value)
 	}

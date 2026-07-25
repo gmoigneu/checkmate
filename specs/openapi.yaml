@@ -1,0 +1,2137 @@
+openapi: 3.1.0
+
+# Checkmate REST API.
+#
+# Derived from the implementation, not from intent: every path, field, enum and
+# status code below was read out of the Go handlers, request structs and store
+# queries. Where the API is deliberately narrower than a client might expect, the
+# description says so rather than leaving a gap to be discovered at runtime.
+#
+# This file covers the REST surface. Two things it cannot express and which live in
+# specs/api-spec.md instead: the MCP endpoint at /mcp (JSON-RPC, not REST) and the
+# behavioural contracts — PATCH's absent/null/set distinction, delete cascades, the
+# sync cursor protocol, and the invariants a client should enforce before sending.
+
+info:
+  title: Checkmate API
+  version: 1.0.0
+  summary: Self-hosted personal task manager.
+  description: |
+    A single-user task manager organised around four parallel **contexts**
+    (Upsun, Personal, Gaal, Arkea): capture without choosing a context, triage
+    deliberately, and read one daily brief.
+
+    ## Authentication
+
+    Three credential kinds, all resolving to the same user:
+
+    | Kind | Used by | Obtained |
+    |---|---|---|
+    | Session cookie | Web | Google OIDC via `/auth/login/google` |
+    | Device token (`cm_…`) | iOS, macOS, CLI | `POST /v1/tokens` (session only) or the CLI |
+    | OAuth access token (`cmat_…`) | Remote MCP clients | `/oauth/authorize` + `/oauth/token` |
+
+    Scopes are `read` (all GETs) and `write` (all mutations). A session cookie
+    always carries both.
+
+    ## Conventions
+
+    - Collections return `{"data": [...], "next_cursor": "<id>"|null}`; single
+      resources return the bare object.
+    - Ids are UUIDv7 strings. Because v7 sorts chronologically, `id DESC` is
+      creation order, which is how every list is ordered.
+    - Timestamps are RFC3339 UTC (`2026-07-25T14:03:11.482Z`). Calendar dates are
+      plain `YYYY-MM-DD` with no timezone.
+    - Estimates are whole minutes.
+    - Errors are `{"error": "...", "fields": {"due_on": "..."}}`. When `fields` is
+      present, render each entry against its control rather than as a toast.
+
+    ## Ordering
+
+    `GET /v1/tasks` takes `sort` and `order`. The default is newest-created-first.
+    Missing values always sort last, in both directions, so "by due date" never
+    opens with undated tasks.
+
+    Pagination under a sort is keyset, not offset, so it does not drift when rows
+    change between pages. `next_cursor` is **opaque and bound to the sort that
+    issued it** — changing `sort` or `order` mid-walk is a 422, because the same
+    position means nothing under a different ordering. Restart the walk instead.
+  contact:
+    name: Checkmate
+    url: https://github.com/gmoigneu/checkmate
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://checkmate.example
+    description: Self-hosted deployment. Set to your own CHECKMATE_BASE_URL.
+  - url: http://localhost:8080
+    description: Local development.
+
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Tasks
+  - name: Contexts
+  - name: Projects
+  - name: People
+  - name: Recurrences
+  - name: Brief
+  - name: Sync
+  - name: Tokens
+  - name: OAuth
+
+security:
+  - bearerAuth: []
+  - cookieAuth: []
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Liveness and database reachability
+      description: Unauthenticated, so a probe needs no credential.
+      security: []
+      responses:
+        "200":
+          description: Healthy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: The database is unreachable. `status` is `degraded`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /auth/config:
+    get:
+      tags: [Authentication]
+      summary: Which sign-in providers are configured
+      description: |
+        Public, because a client needs it before anyone is authenticated. An empty
+        `providers` array means no identity provider is configured: the web app
+        cannot sign in at all and a native client should route straight to pasting
+        a device token.
+      security: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [providers]
+                properties:
+                  providers:
+                    type: array
+                    items: { type: string, examples: ["google"] }
+
+  /auth/login/{provider}:
+    get:
+      tags: [Authentication]
+      summary: Begin federated sign-in
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, examples: ["google"] }
+        - name: redirect_to
+          in: query
+          description: |
+            Where to land after sign-in. Reduced to a same-site path; an absolute
+            URL, a scheme-relative `//host` or anything not rooted at `/` is
+            discarded in favour of `/`.
+          schema: { type: string, examples: ["/tasks/abc123"] }
+      responses:
+        "302": { description: Redirect to the identity provider. }
+        "400": { description: Unknown provider. }
+        "501": { description: No identity provider is configured. }
+
+  /auth/callback/{provider}:
+    get:
+      tags: [Authentication]
+      summary: Finish federated sign-in
+      description: |
+        Sets the session cookie and redirects. Single-use: the login flow is
+        consumed on arrival, so a replayed callback URL fails.
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string }
+        - name: state
+          in: query
+          schema: { type: string }
+        - name: code
+          in: query
+          schema: { type: string }
+        - name: error
+          in: query
+          description: Set when the provider declined.
+          schema: { type: string }
+      responses:
+        "302": { description: Signed in; cookie set. }
+        "400":
+          description: |
+            Missing state or code, or the link has expired or was already used.
+        "403":
+          description: |
+            The address is not on `CHECKMATE_ALLOWED_EMAILS`, or the provider did
+            not report the email as verified. Not recoverable by retrying, and
+            must not be presented as a wrong-password error.
+        "501": { description: No identity provider is configured. }
+
+  /v1/me:
+    get:
+      tags: [Authentication]
+      summary: The authenticated user
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/logout:
+    post:
+      tags: [Authentication]
+      summary: End the current session
+      parameters:
+        - name: everywhere
+          in: query
+          description: Revoke every session for this user, not just this one.
+          schema: { type: boolean, default: false }
+      responses:
+        "204": { description: Signed out; cookie cleared. }
+        "400":
+          description: |
+            The caller authenticated with a bearer token, which has no session to
+            end. Revoke the token instead.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/sources:
+    get:
+      tags: [Tasks]
+      summary: The fixed source lookup
+      description: |
+        Six rows, global rather than per-user, and effectively immutable: `self`,
+        `email`, `slack`, `google_chat`, `meeting`, `phone`.
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Source" }
+                  next_cursor: { type: ["string", "null"] }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/tasks:
+    get:
+      tags: [Tasks]
+      summary: List and filter tasks
+      description: |
+        `context_id=null`, `project_id=null` and `parent_id=null` select rows where
+        that column is NULL. `parent_id=null` and `top_level=true` are the same
+        question.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/includeDeleted"
+        - name: sort
+          in: query
+          description: |
+            Column to order by. Rows with no value for it sort last in both
+            directions.
+          schema:
+            type: string
+            default: created_at
+            enum: [created_at, updated_at, due_on, planned_on, title, estimate_minutes, completed_at, status]
+        - name: order
+          in: query
+          description: |
+            Direction. Defaults to `desc` for `created_at` — newest first, which is
+            what a task list wants — and `asc` for every other field, so the
+            soonest date or shortest estimate leads.
+          schema:
+            type: string
+            enum: [asc, desc]
+        - name: status
+          in: query
+          description: Repeatable, or comma-separated.
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/TaskStatus" }
+          style: form
+          explode: true
+        - name: kind
+          in: query
+          description: Repeatable, or comma-separated. Derived server-side.
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/TaskKind" }
+          style: form
+          explode: true
+        - name: context_id
+          in: query
+          description: A context id, or the literal `null` for the inbox.
+          schema: { type: string }
+        - name: project_id
+          in: query
+          description: A project id, or the literal `null`.
+          schema: { type: string }
+        - name: parent_id
+          in: query
+          description: A task id, or the literal `null` for top-level tasks only.
+          schema: { type: string }
+        - name: top_level
+          in: query
+          description: Exclude subtasks. Equivalent to `parent_id=null`.
+          schema: { type: boolean }
+        - name: delegated_to_id
+          in: query
+          schema: { type: string }
+        - name: recurrence_id
+          in: query
+          description: Every occurrence spawned from one series.
+          schema: { type: string }
+        - name: planned_on
+          in: query
+          schema: { $ref: "#/components/schemas/Date" }
+        - name: planned_before
+          in: query
+          description: Inclusive.
+          schema: { $ref: "#/components/schemas/Date" }
+        - name: planned_after
+          in: query
+          description: Inclusive.
+          schema: { $ref: "#/components/schemas/Date" }
+        - name: due_on
+          in: query
+          schema: { $ref: "#/components/schemas/Date" }
+        - name: due_before
+          in: query
+          description: Inclusive.
+          schema: { $ref: "#/components/schemas/Date" }
+        - name: due_after
+          in: query
+          description: Inclusive.
+          schema: { $ref: "#/components/schemas/Date" }
+        - name: q
+          in: query
+          description: |
+            Substring match over title and details. Wildcards typed by the user are
+            escaped and match literally.
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422":
+          description: |
+            Validation failed. `sort` or `order` for an unknown value; `cursor`
+            when it was issued for a different sort.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      tags: [Tasks]
+      summary: Create a task
+      description: |
+        Only `title` is required. Omitting `context_id` captures into the inbox,
+        which is the intended fast path: `status` then defaults to `inbox`, and to
+        `todo` when a context is given.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskCreate" }
+      responses:
+        "201":
+          description: Created. `Location` names the new task.
+          headers:
+            Location:
+              schema: { type: string, examples: ["/v1/tasks/019f98..."] }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/tasks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Tasks]
+      summary: Get a task
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Tasks]
+      summary: Update a task
+      description: |
+        Partial. An omitted key changes nothing; an explicit `null` clears the
+        field. An unknown key is a 400, never a silent no-op.
+
+        `recurrence_id`, `occurrence_on`, `kind` and `rev` are not writable, so
+        sending them is a 400. `delegated_to` (create-only, by name) is likewise
+        rejected here; set `delegated_to_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskUpdate" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [Tasks]
+      summary: Delete a task and its subtree
+      description: |
+        Tombstones the task and every descendant. Anything blocked by one of them
+        is unblocked and returned to `todo`. There is no undelete.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/contexts:
+    get:
+      tags: [Contexts]
+      summary: List contexts
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/includeDeleted"
+        - name: include_archived
+          in: query
+          description: Archived contexts are excluded by default.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ContextList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    post:
+      tags: [Contexts]
+      summary: Create a context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContextCreate" }
+      responses:
+        "201":
+          description: Created.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Context" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422":
+          description: |
+            Validation failed. `slug` when the derived or supplied slug is already
+            used by another live context.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /v1/contexts/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Contexts]
+      summary: Get a context
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Context" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Contexts]
+      summary: Update a context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContextUpdate" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Context" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [Contexts]
+      summary: Delete a context
+      description: |
+        Tombstones the context, and with it its projects and recurrences. **Its
+        tasks are moved to the inbox rather than deleted** — `context_id` and
+        `project_id` are cleared. People associated with it lose the association.
+        A confirmation dialog must say all of this.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/includeDeleted"
+        - name: context_id
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          description: Repeatable, or comma-separated.
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/ProjectStatus" }
+          style: form
+          explode: true
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    post:
+      tags: [Projects]
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectCreate" }
+      responses:
+        "201":
+          description: Created.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/projects/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Projects]
+      summary: Get a project
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Projects]
+      summary: Update a project
+      description: |
+        Changing `context_id` **moves every task in the project with it**. A
+        confirmation must say so.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectUpdate" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [Projects]
+      summary: Delete a project
+      description: |
+        Tombstoned. Its tasks stay in their context and lose the grouping;
+        recurrences pointing at it lose the association.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/people:
+    get:
+      tags: [People]
+      summary: List people
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/includeDeleted"
+        - name: context_id
+          in: query
+          schema: { type: string }
+        - name: q
+          in: query
+          description: Substring match over name and email.
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PersonList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    post:
+      tags: [People]
+      summary: Create a person
+      description: |
+        Names are unique per user, case-insensitively. `POST /v1/tasks` with
+        `delegated_to` can create a person by name in one call instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PersonCreate" }
+      responses:
+        "201":
+          description: Created.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422":
+          description: Validation failed. `name` when it already exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /v1/people/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [People]
+      summary: Get a person
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [People]
+      summary: Update a person
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PersonUpdate" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [People]
+      summary: Delete a person
+      description: |
+        Tombstoned. Tasks delegated to them are un-delegated and **returned to
+        `todo`**, because the schema forbids a delegated task with no delegate.
+        Recurrences delegated to them lose the delegate.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/recurrences:
+    get:
+      tags: [Recurrences]
+      summary: List recurrence templates
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - $ref: "#/components/parameters/includeDeleted"
+        - name: context_id
+          in: query
+          schema: { type: string }
+        - name: active
+          in: query
+          description: |
+            A series is deactivated when it passes `ends_on` or exhausts a
+            `COUNT=`, so `active: false` also means "finished", not only "paused".
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecurrenceList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    post:
+      tags: [Recurrences]
+      summary: Create a recurrence template
+      description: |
+        Occurrences due inside the lead window are materialized synchronously, so
+        the response is immediately followed by real tasks carrying
+        `recurrence_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecurrenceCreate" }
+      responses:
+        "201":
+          description: Created.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Recurrence" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/recurrences/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Recurrences]
+      summary: Get a recurrence template
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Recurrence" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Recurrences]
+      summary: Update a recurrence template
+      description: Also re-runs the spawner for this series.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecurrenceUpdate" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Recurrence" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [Recurrences]
+      summary: Delete a recurrence template
+      description: |
+        Tombstoned and deactivated. **Occurrences already spawned are left
+        untouched** — they are real completion history.
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/brief:
+    get:
+      tags: [Brief]
+      summary: The daily brief
+      description: |
+        Eight buckets plus totals, each bucket sorted server-side. Buckets
+        overlap: one task can be in `overdue`, `planned` and `blocked` at once.
+
+        Lists are capped at 100 entries; `totals` are exact and uncapped, so
+        `totals.overdue` may exceed `overdue.length`.
+
+        `inbox` ignores `context_id`, because an untriaged task has no context and
+        filtering would always empty it. Label the count as global when a context
+        filter is active.
+      parameters:
+        - name: date
+          in: query
+          description: Defaults to today in the caller's account timezone.
+          schema: { $ref: "#/components/schemas/Date" }
+        - name: timezone
+          in: query
+          description: |
+            IANA name overriding the account timezone, deciding which day "today"
+            is. Echoed back in the response.
+          schema: { type: string, examples: ["Europe/Paris"] }
+        - name: context_id
+          in: query
+          description: Limits every bucket except `inbox`.
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Brief" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422":
+          description: |
+            Validation failed. `timezone` for an unknown IANA name, `date` for a
+            non-existent calendar date such as `2026-02-31`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /v1/sync:
+    get:
+      tags: [Sync]
+      summary: Changes since a cursor
+      description: |
+        A one-way feed: the server is authoritative and there is no offline write
+        path. Persist `cursor`, replay the rows, and apply any row carrying
+        `deleted_at` as a deletion.
+
+        `sources` is present only on a full sync (`since=0`), since it has no
+        `rev`. Every collection is always an array, never null. `has_more` means
+        more changes are already waiting, so poll again immediately rather than
+        waiting for the next tick.
+      parameters:
+        - name: since
+          in: query
+          description: The last `cursor` received. Omit or `0` for a full sync.
+          schema: { type: integer, format: int64, minimum: 0, default: 0 }
+        - name: limit
+          in: query
+          description: Rows per table.
+          schema: { type: integer, minimum: 1, maximum: 2000, default: 500 }
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/tokens:
+    get:
+      tags: [Tokens]
+      summary: List device tokens
+      description: The secret is not stored, so it never appears here.
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Tokens]
+      summary: Issue a device token
+      description: |
+        **Session cookie only.** A bearer-token caller gets 403: minting a
+        long-lived credential from a long-lived credential would let a leaked
+        token renew itself indefinitely.
+
+        The secret is returned **once** and only its hash is kept.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TokenCreate" }
+      responses:
+        "201":
+          description: Created. `token` is the only copy of the secret.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: |
+            The caller used a bearer token, or lacks the `write` scope.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/tokens/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    delete:
+      tags: [Tokens]
+      summary: Revoke a device token
+      description: Takes effect immediately. Revoking twice is not an error.
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/grants:
+    get:
+      tags: [OAuth]
+      summary: List connected OAuth clients
+      description: One entry per client the user has consented to.
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GrantList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/grants/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    delete:
+      tags: [OAuth]
+      summary: Withdraw consent
+      description: |
+        Revokes every access and refresh token issued under the grant and deletes
+        its outstanding authorization codes. Immediate.
+      responses:
+        "204": { description: Withdrawn. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /.well-known/oauth-authorization-server:
+    get:
+      tags: [OAuth]
+      summary: Authorization server metadata (RFC 8414)
+      security: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: |
+                  Includes `code_challenge_methods_supported: ["S256"]`, which MCP
+                  clients treat as proof that PKCE is supported;
+                  `authorization_response_iss_parameter_supported: true` (RFC
+                  9207); and `client_id_metadata_document_supported: true`.
+                additionalProperties: true
+        "404": { description: The authorization server is disabled. }
+
+  /.well-known/oauth-protected-resource:
+    get:
+      tags: [OAuth]
+      summary: Protected resource metadata (RFC 9728)
+      description: |
+        Also served path-inserted at
+        `/.well-known/oauth-protected-resource/mcp`, which is what a client
+        probing for the MCP endpoint's metadata requests.
+      security: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resource, authorization_servers]
+                properties:
+                  resource: { type: string }
+                  authorization_servers:
+                    type: array
+                    items: { type: string }
+                  scopes_supported:
+                    type: array
+                    items: { type: string }
+                  bearer_methods_supported:
+                    type: array
+                    items: { type: string, examples: ["header"] }
+                  resource_name: { type: string }
+        "404": { description: Unknown resource, or the authorization server is disabled. }
+
+  /oauth/authorize:
+    get:
+      tags: [OAuth]
+      summary: Authorization endpoint (consent screen)
+      description: |
+        Renders HTML, not JSON. An unauthenticated visitor is redirected into
+        sign-in and returned here with the request intact.
+
+        PKCE is mandatory: `code_challenge` with `code_challenge_method=S256`. An
+        omitted method is an error rather than RFC 7636's `plain` default.
+        Redirect URIs are matched exactly. Errors are only delivered to the
+        redirect URI once it has been verified against the client; before that
+        they render as a page, so this endpoint cannot be used as an open redirect.
+      security: []
+      parameters:
+        - { name: client_id, in: query, required: true, schema: { type: string } }
+        - { name: redirect_uri, in: query, schema: { type: string } }
+        - { name: response_type, in: query, required: true, schema: { type: string, const: code } }
+        - { name: scope, in: query, schema: { type: string, examples: ["read write offline_access"] } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: code_challenge, in: query, required: true, schema: { type: string } }
+        - { name: code_challenge_method, in: query, required: true, schema: { type: string, const: S256 } }
+        - name: resource
+          in: query
+          description: RFC 8707 resource indicator. Defaults to this server.
+          schema: { type: string }
+      responses:
+        "200": { description: The consent screen, as HTML. }
+        "302": { description: Redirect to sign-in, or an error response to a verified redirect URI. }
+        "400": { description: Malformed request, rendered as HTML. }
+        "401": { description: Unknown client, rendered as HTML. }
+        "501": { description: No identity provider, so consent cannot be obtained. }
+    post:
+      tags: [OAuth]
+      summary: Record the consent decision
+      description: |
+        Form-encoded, session-authenticated, same-origin enforced. On approval,
+        redirects to the client with `code`, `state` and `iss`.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [request_id, decision]
+              properties:
+                request_id: { type: string }
+                decision: { type: string, enum: [approve, deny] }
+      responses:
+        "302": { description: Redirect to the client's redirect URI. }
+        "400": { description: The request expired or was already used. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Cross-origin request refused. }
+
+  /oauth/token:
+    post:
+      tags: [OAuth]
+      summary: Token endpoint
+      description: |
+        Grants: `authorization_code` and `refresh_token`. Refresh tokens rotate on
+        every use; replaying a rotated one revokes the whole grant, on the
+        assumption that a replay means the token leaked.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type]
+              properties:
+                grant_type: { type: string, enum: [authorization_code, refresh_token] }
+                code: { type: string }
+                redirect_uri: { type: string }
+                code_verifier: { type: string, minLength: 43, maxLength: 128 }
+                refresh_token: { type: string }
+                client_id: { type: string }
+                client_secret: { type: string }
+                resource: { type: string }
+                scope:
+                  type: string
+                  description: On refresh, may narrow the grant but never widen it.
+      responses:
+        "200":
+          description: Issued. Never cached.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "400":
+          description: |
+            `invalid_request`, `invalid_grant`, `invalid_scope`, `invalid_target`
+            or `unsupported_grant_type`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OAuthError" }
+        "401":
+          description: "`invalid_client`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OAuthError" }
+
+  /oauth/revoke:
+    post:
+      tags: [OAuth]
+      summary: Revocation endpoint (RFC 7009)
+      description: |
+        Returns 200 whether or not the token existed, so it cannot be used to
+        probe. Revoking a refresh token also revokes its grant's access tokens.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+                token_type_hint: { type: string, enum: [access_token, refresh_token] }
+                client_id: { type: string }
+      responses:
+        "200": { description: Done. }
+        "400":
+          description: Malformed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OAuthError" }
+        "401":
+          description: "`invalid_client`: no client_id."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OAuthError" }
+
+  /oauth/register:
+    post:
+      tags: [OAuth]
+      summary: Dynamic client registration (RFC 7591)
+      description: |
+        Open registration, capped by `CHECKMATE_OAUTH_MAX_DYNAMIC_CLIENTS`.
+        Deprecated by the MCP draft spec in favour of Client ID Metadata
+        Documents, and disableable with `CHECKMATE_OAUTH_ALLOW_DCR=false`.
+
+        Unknown metadata is ignored rather than rejected, as RFC 7591 expects.
+        Redirect URIs must be https, or loopback http for a native client.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClientRegistration" }
+      responses:
+        "201":
+          description: |
+            Registered. `client_secret` appears only for a confidential client.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClientRegistered" }
+        "400":
+          description: Invalid metadata.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OAuthError" }
+        "403":
+          description: Registration is disabled, or the client cap is reached.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OAuthError" }
+        "404": { description: The authorization server is disabled. }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        A device token (`cm_…`) or an OAuth access token (`cmat_…`). An OAuth token
+        is additionally checked to have been issued for this resource. A refresh
+        token presented here is refused.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-checkmate_session
+      description: |
+        Set by the sign-in callback. `HttpOnly`, `Secure`, `SameSite=Lax`. The
+        `__Host-` prefix requires `Secure`, so a development server over plain
+        http uses the unprefixed name `checkmate_session` instead.
+
+        Cookie-authenticated mutations must additionally prove same origin, via
+        `Sec-Fetch-Site` or a matching `Origin`; a request with neither is refused.
+    oauth2:
+      type: oauth2
+      description: For remote MCP clients. PKCE with S256 is mandatory.
+      flows:
+        authorizationCode:
+          authorizationUrl: /oauth/authorize
+          tokenUrl: /oauth/token
+          refreshUrl: /oauth/token
+          scopes:
+            read: See tasks, projects, contexts and people.
+            write: Create, change and delete.
+            offline_access: Receive a refresh token.
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      description: A UUIDv7.
+      schema: { type: string }
+    limit:
+      name: limit
+      in: query
+      description: Page size.
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    cursor:
+      name: cursor
+      in: query
+      description: |
+        The `next_cursor` from the previous page. **Opaque — do not parse it.**
+
+        On a sorted task listing it is a keyset position bound to that exact sort,
+        so reusing it with a different `sort` or `order` is a 422 rather than a
+        quietly wrong page.
+      schema: { type: string }
+    includeDeleted:
+      name: include_deleted
+      in: query
+      description: |
+        Include tombstoned rows, which carry `deleted_at`. There is no undelete
+        endpoint, so these are historical only.
+      schema: { type: boolean, default: false }
+
+  responses:
+    BadRequest:
+      description: |
+        Malformed JSON, an unknown field, or more than one JSON document. Unknown
+        fields are rejected rather than ignored, so a misspelled key on PATCH is
+        reported instead of looking like a successful no-op.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: |
+        No credential, or one that is unknown, revoked, expired, or issued for a
+        different resource. `WWW-Authenticate` names the protected resource
+        metadata document and the scopes the request needs.
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: |
+        The credential lacks the scope this method needs — `read` for GET, `write`
+        for a mutation — or a cookie-authenticated mutation failed the same-origin
+        check. A scope failure carries `WWW-Authenticate` with
+        `error="insufficient_scope"`, which is what lets an OAuth client step up.
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: |
+        No such row **or it belongs to another user** — the two are deliberately
+        indistinguishable, so the API never confirms that an id it will not serve
+        exists. Treat as "no longer exists"; a deep link from a stale widget will
+        land here.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    PayloadTooLarge:
+      description: Over 1 MiB. Only reachable through `details`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    UnsupportedMediaType:
+      description: "`Content-Type` is not JSON."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationFailed:
+      description: |
+        Well-formed but not applicable. `fields` maps each offending input to a
+        message; render them inline rather than as one toast.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            task:
+              value:
+                error: validation failed
+                fields:
+                  due_on: must be a YYYY-MM-DD date
+                  title: is required
+
+  schemas:
+    Date:
+      type: string
+      pattern: '^\d{4}-\d{2}-\d{2}$'
+      description: |
+        A calendar date with no timezone. Validated as a real date, so
+        `2026-02-31` is rejected rather than merely shape-checked.
+      examples: ["2026-08-15"]
+
+    Timestamp:
+      type: string
+      format: date-time
+      description: RFC3339, UTC, milliseconds.
+      examples: ["2026-07-25T14:03:11.482Z"]
+
+    Rev:
+      type: integer
+      format: int64
+      description: |
+        A global change counter, unique across every table and monotonic. Used as
+        the sync cursor. Not writable.
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        fields:
+          type: object
+          description: Per-input messages, keyed by the request field name.
+          additionalProperties: { type: string }
+
+    OAuthError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        error_description: { type: string }
+
+    Health:
+      type: object
+      required: [status, version, database]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        version: { type: string }
+        database: { type: string, enum: [ok, unreachable] }
+
+    Me:
+      type: object
+      required: [user_id, email, name, timezone, auth_via, scopes]
+      properties:
+        user_id: { type: string }
+        email: { type: string }
+        name: { type: string }
+        timezone:
+          type: string
+          description: IANA name; decides which day "today" is.
+        auth_via:
+          type: string
+          enum: [session, token]
+          description: |
+            Which credential kind answered. `token` covers both device and OAuth
+            tokens, and is the signal that this client cannot issue new tokens.
+        scopes:
+          type: array
+          items: { type: string, enum: [read, write] }
+
+    TaskStatus:
+      type: string
+      enum: [inbox, todo, in_progress, blocked, delegated, done, cancelled]
+      description: |
+        Exhaustive; enforced by a database CHECK. `inbox` means captured but not
+        triaged. `delegated` requires `delegated_to_id`, in both directions.
+        `blocked` does **not** require `blocked_by_id`, because a task can be
+        blocked by something outside Checkmate. `cancelled` is not `done`.
+
+    TaskKind:
+      type: string
+      enum: [short, long, recurring, delegated, blocked]
+      readOnly: true
+      description: |
+        Derived by the server and never stored, so it cannot go stale. Precedence
+        is strict: `recurring` if `recurrence_id` is set, else `delegated` if
+        `delegated_to_id` is set, else `blocked` if `blocked_by_id` is set or the
+        status is `blocked`, else `long` if it has a live child, else `short`.
+
+    CaptureMethod:
+      type: string
+      enum: [form, api, hermes, chrome_ext, ios_widget, voice, recurrence]
+      description: |
+        How the task entered Checkmate — an axis independent of `source`, which is
+        where it came from. Set on create, then read-only. `hermes` is what the MCP
+        endpoint stamps, `recurrence` what the spawner stamps. Diagnostic: show it
+        in a detail footer, not in a list row.
+
+    ProjectStatus:
+      type: string
+      enum: [active, paused, done, archived]
+
+    Source:
+      type: object
+      required: [key, label, sort_order]
+      properties:
+        key:
+          type: string
+          enum: [self, email, slack, google_chat, meeting, phone]
+        label: { type: string }
+        sort_order: { type: integer, format: int64 }
+
+    Task:
+      type: object
+      required:
+        [id, title, status, kind, capture_method, created_at, updated_at, rev]
+      properties:
+        id: { type: string }
+        context_id:
+          type: ["string", "null"]
+          description: Null means the task is in the inbox, awaiting triage.
+        project_id: { type: ["string", "null"] }
+        parent_id:
+          type: ["string", "null"]
+          description: Subtasks nest to any depth. Cycles are rejected at any depth.
+        recurrence_id:
+          type: ["string", "null"]
+          readOnly: true
+          description: Set on an occurrence spawned from a series. Not detachable.
+        occurrence_on:
+          oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }]
+          readOnly: true
+          description: The date this occurrence stands for.
+        source:
+          type: ["string", "null"]
+          description: A `Source.key`.
+        capture_method: { $ref: "#/components/schemas/CaptureMethod" }
+        title: { type: string, minLength: 1, maxLength: 500 }
+        details:
+          type: ["string", "null"]
+          description: Plain text. Counts against the 1 MiB body limit.
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        due_on:
+          oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }]
+          description: The deadline that exists in the world.
+        planned_on:
+          oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }]
+          description: |
+            The day the user intends to work on it. Distinct from `due_on` — a task
+            can be due Friday and planned for Tuesday. Conflating them destroys the
+            model.
+        estimate_minutes:
+          type: ["integer", "null"]
+          format: int64
+          minimum: 1
+          description: Whole minutes, greater than zero.
+        delegated_to_id: { type: ["string", "null"] }
+        blocked_by_id: { type: ["string", "null"] }
+        reference_url:
+          type: ["string", "null"]
+          description: |
+            Absolute http or https URL pointing at the origin — a Slack permalink,
+            an email thread. The only external pointer; there are no attachments.
+        reference_label: { type: ["string", "null"] }
+        kind: { $ref: "#/components/schemas/TaskKind" }
+        completed_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+          readOnly: true
+          description: Server-managed. Cleared automatically when a task is reopened.
+        cancelled_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+          readOnly: true
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+        deleted_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+          readOnly: true
+          description: Present only on a tombstone.
+        rev: { $ref: "#/components/schemas/Rev" }
+
+    TaskCreate:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 500 }
+        details: { type: ["string", "null"] }
+        context_id:
+          type: ["string", "null"]
+          description: Omit to capture into the inbox.
+        project_id:
+          type: ["string", "null"]
+          description: Must belong to the same context as `context_id`.
+        parent_id: { type: ["string", "null"] }
+        source: { type: ["string", "null"] }
+        capture_method:
+          $ref: "#/components/schemas/CaptureMethod"
+          default: api
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+          description: |
+            Defaults to `inbox` without a context, `todo` with one. Setting
+            `delegated` requires a delegate.
+        due_on: { oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }] }
+        planned_on: { oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }] }
+        estimate_minutes: { type: ["integer", "null"], format: int64, minimum: 1 }
+        delegated_to_id: { type: ["string", "null"] }
+        delegated_to:
+          type: ["string", "null"]
+          description: |
+            A person's **name**, resolved or created in the same call. Mutually
+            exclusive with `delegated_to_id`. Create-only; not accepted on PATCH.
+        blocked_by_id: { type: ["string", "null"] }
+        reference_url: { type: ["string", "null"] }
+        reference_label: { type: ["string", "null"] }
+
+    TaskUpdate:
+      type: object
+      additionalProperties: false
+      description: |
+        Absent, null and set are three different things. `{}` changes nothing,
+        `{"due_on": null}` clears the date, a value sets it. So "clear this field"
+        and "leave it alone" must be two visibly different actions in the UI.
+      properties:
+        title: { type: string, minLength: 1, maxLength: 500 }
+        details: { type: ["string", "null"] }
+        context_id:
+          type: ["string", "null"]
+          description: |
+            Clearing this returns the task to the inbox and clears `project_id`
+            with it.
+        project_id: { type: ["string", "null"] }
+        parent_id: { type: ["string", "null"] }
+        source: { type: ["string", "null"] }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        due_on: { oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }] }
+        planned_on: { oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }] }
+        estimate_minutes: { type: ["integer", "null"], format: int64, minimum: 1 }
+        delegated_to_id: { type: ["string", "null"] }
+        blocked_by_id: { type: ["string", "null"] }
+        reference_url: { type: ["string", "null"] }
+        reference_label: { type: ["string", "null"] }
+
+    Context:
+      type: object
+      required: [id, name, slug, sort_order, created_at, updated_at, rev]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        color:
+          type: ["string", "null"]
+          description: |
+            **Unvalidated free text.** No format is enforced server-side; agree one
+            client-side and treat null as "use the fallback".
+        sort_order:
+          type: integer
+          format: int64
+          description: |
+            Display order, writable. Contexts are the only entity with a
+            persistable order; tasks and projects have none.
+        archived_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+        deleted_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        rev: { $ref: "#/components/schemas/Rev" }
+
+    ContextCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1 }
+        slug:
+          type: string
+          description: Derived from the name when omitted. Unique per user.
+        color: { type: ["string", "null"] }
+        sort_order:
+          type: ["integer", "null"]
+          format: int64
+          description: Appended after the existing contexts when omitted.
+
+    ContextUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1 }
+        slug: { type: string, minLength: 1 }
+        color: { type: ["string", "null"] }
+        sort_order:
+          type: integer
+          format: int64
+          description: Not nullable; sending null is a 422.
+        archived:
+          type: boolean
+          description: |
+            A convenience over the timestamp: true sets `archived_at` to now, false
+            clears it.
+
+    Project:
+      type: object
+      required: [id, context_id, name, status, created_at, updated_at, rev]
+      properties:
+        id: { type: string }
+        context_id:
+          type: string
+          description: Required. A project belongs to exactly one context and has no children.
+        name: { type: string }
+        description: { type: ["string", "null"] }
+        status: { $ref: "#/components/schemas/ProjectStatus" }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+        deleted_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        rev: { $ref: "#/components/schemas/Rev" }
+
+    ProjectCreate:
+      type: object
+      required: [context_id, name]
+      additionalProperties: false
+      properties:
+        context_id: { type: string }
+        name: { type: string, minLength: 1 }
+        description: { type: ["string", "null"] }
+        status: { $ref: "#/components/schemas/ProjectStatus", default: active }
+
+    ProjectUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        context_id:
+          type: string
+          description: Moving the project moves all of its tasks with it.
+        name: { type: string, minLength: 1 }
+        description: { type: ["string", "null"] }
+        status: { $ref: "#/components/schemas/ProjectStatus" }
+
+    Person:
+      type: object
+      required: [id, name, created_at, updated_at, rev]
+      description: |
+        Someone the user delegates to and follows up with. They have no account and
+        never see Checkmate; "delegated to Marc" means the user is waiting on Marc.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: ["string", "null"] }
+        context_id:
+          type: ["string", "null"]
+          description: Null means they are relevant everywhere.
+        notes: { type: ["string", "null"] }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+        deleted_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        rev: { $ref: "#/components/schemas/Rev" }
+
+    PersonCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1 }
+        email: { type: ["string", "null"] }
+        context_id: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+
+    PersonUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1 }
+        email: { type: ["string", "null"] }
+        context_id: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+
+    Recurrence:
+      type: object
+      required:
+        [id, context_id, title, rrule, timezone, lead_days, starts_on, active,
+         created_at, updated_at, rev]
+      properties:
+        id: { type: string }
+        context_id: { type: string }
+        project_id: { type: ["string", "null"] }
+        source: { type: ["string", "null"] }
+        title: { type: string }
+        details: { type: ["string", "null"] }
+        rrule:
+          type: string
+          description: |
+            An RFC 5545 rule. A `FREQ` part is required, from `DAILY`, `WEEKLY`,
+            `MONTHLY`, `YEARLY`, `HOURLY`, `MINUTELY`, `SECONDLY`. The rest goes to
+            a full RRULE engine, so `INTERVAL`, `BYDAY`, `BYMONTHDAY`, `COUNT` and
+            `UNTIL` all work.
+          examples: ["FREQ=WEEKLY;BYDAY=MO"]
+        timezone:
+          type: string
+          description: |
+            Per-series, because `occurrence_on` is a plain date and one instant is
+            two different days either side of the date line.
+        estimate_minutes: { type: ["integer", "null"], format: int64, minimum: 1 }
+        delegated_to_id: { type: ["string", "null"] }
+        lead_days:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            How many days **ahead of its due date** an occurrence appears.
+            `lead_days: 2` on a Monday report means it shows up on Saturday.
+        starts_on: { $ref: "#/components/schemas/Date" }
+        ends_on:
+          oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }]
+        next_occurrence_on:
+          oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }]
+          readOnly: true
+        last_spawned_on:
+          oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }]
+          readOnly: true
+        active:
+          type: boolean
+          description: |
+            False means paused **or finished** — a series is deactivated when it
+            passes `ends_on` or exhausts a `COUNT=`. The two are not distinguished.
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+        deleted_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        rev: { $ref: "#/components/schemas/Rev" }
+
+    RecurrenceCreate:
+      type: object
+      required: [context_id, title, rrule, starts_on]
+      additionalProperties: false
+      properties:
+        context_id: { type: string }
+        project_id: { type: ["string", "null"] }
+        source: { type: ["string", "null"] }
+        title: { type: string, minLength: 1, maxLength: 500 }
+        details: { type: ["string", "null"] }
+        rrule: { type: string }
+        timezone: { type: string, default: UTC }
+        estimate_minutes: { type: ["integer", "null"], format: int64, minimum: 1 }
+        delegated_to_id: { type: ["string", "null"] }
+        lead_days: { type: ["integer", "null"], format: int64, minimum: 0 }
+        starts_on: { $ref: "#/components/schemas/Date" }
+        ends_on:
+          oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }]
+        active: { type: ["boolean", "null"], default: true }
+
+    RecurrenceUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        context_id: { type: string }
+        project_id: { type: ["string", "null"] }
+        source: { type: ["string", "null"] }
+        title: { type: string, minLength: 1, maxLength: 500 }
+        details: { type: ["string", "null"] }
+        rrule: { type: string }
+        timezone: { type: string }
+        estimate_minutes: { type: ["integer", "null"], format: int64, minimum: 1 }
+        delegated_to_id: { type: ["string", "null"] }
+        lead_days:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Not nullable; sending null is a 422.
+        starts_on: { $ref: "#/components/schemas/Date" }
+        ends_on:
+          oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }]
+        active: { type: boolean }
+
+    BriefTotals:
+      type: object
+      description: |
+        Exact counts, computed by SQL aggregate over the whole bucket. They are
+        **not** capped, so a total may exceed the length of its list.
+      required:
+        [overdue, due_today, planned, inbox, blocked, waiting_on, in_progress,
+         completed_today, planned_minutes, planned_without_estimate]
+      properties:
+        overdue: { type: integer }
+        due_today: { type: integer }
+        planned: { type: integer }
+        inbox:
+          type: integer
+          description: Global — never narrowed by `context_id`.
+        blocked: { type: integer }
+        waiting_on: { type: integer }
+        in_progress: { type: integer }
+        completed_today: { type: integer }
+        planned_minutes:
+          type: integer
+          description: |
+            Summed estimate of what is planned for the day. Never render this as
+            the complete picture while `planned_without_estimate` is non-zero.
+        planned_without_estimate:
+          type: integer
+          description: How many planned tasks carry no estimate.
+
+    WaitingOnGroup:
+      type: object
+      required: [person_id, person_name, tasks]
+      properties:
+        person_id: { type: string }
+        person_name: { type: string }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+
+    Brief:
+      type: object
+      required:
+        [date, timezone, overdue, due_today, planned, in_progress, inbox,
+         blocked, waiting_on, completed_today, totals]
+      properties:
+        date: { $ref: "#/components/schemas/Date" }
+        timezone:
+          type: string
+          description: The zone that decided the day boundary.
+        overdue:
+          type: array
+          description: "`due_on` before `date`, still open. Sorted `due_on` ascending — longest-late first."
+          items: { $ref: "#/components/schemas/Task" }
+        due_today:
+          type: array
+          description: |
+            `due_on` equals `date`. Sorted by estimate ascending, treating a
+            missing estimate as zero — so unestimated tasks come **first**.
+          items: { $ref: "#/components/schemas/Task" }
+        planned:
+          type: array
+          description: "`planned_on` equals `date`. Sorted `due_on` ascending, undated last."
+          items: { $ref: "#/components/schemas/Task" }
+        in_progress:
+          type: array
+          description: Sorted `updated_at` descending.
+          items: { $ref: "#/components/schemas/Task" }
+        inbox:
+          type: array
+          description: |
+            Status `inbox`. Sorted `created_at` ascending — oldest first. Ignores
+            `context_id`.
+          items: { $ref: "#/components/schemas/Task" }
+        blocked:
+          type: array
+          description: Sorted `updated_at` ascending.
+          items: { $ref: "#/components/schemas/Task" }
+        waiting_on:
+          type: array
+          description: |
+            Delegated tasks grouped by person, because a follow-up is made per
+            person rather than per task. Within a group, `due_on` ascending with
+            undated first. Groups are in first-seen order, not sorted.
+          items: { $ref: "#/components/schemas/WaitingOnGroup" }
+        completed_today:
+          type: array
+          description: Sorted `completed_at` descending.
+          items: { $ref: "#/components/schemas/Task" }
+        totals: { $ref: "#/components/schemas/BriefTotals" }
+
+    SyncChanges:
+      type: object
+      required: [contexts, projects, people, recurrences, tasks]
+      description: |
+        Always all five keys, always arrays. Rows carrying `deleted_at` are
+        tombstones and must be applied as deletions.
+      properties:
+        contexts:
+          type: array
+          items: { $ref: "#/components/schemas/Context" }
+        projects:
+          type: array
+          items: { $ref: "#/components/schemas/Project" }
+        people:
+          type: array
+          items: { $ref: "#/components/schemas/Person" }
+        recurrences:
+          type: array
+          items: { $ref: "#/components/schemas/Recurrence" }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+
+    SyncResult:
+      type: object
+      required: [cursor, has_more, changes, server_time]
+      properties:
+        cursor:
+          type: integer
+          format: int64
+          description: Pass as `since` next time. Never moves backwards.
+        has_more:
+          type: boolean
+          description: More changes are already waiting; poll again immediately.
+        changes: { $ref: "#/components/schemas/SyncChanges" }
+        sources:
+          type: array
+          description: Present only on a full sync (`since=0`).
+          items: { $ref: "#/components/schemas/Source" }
+        server_time:
+          $ref: "#/components/schemas/Timestamp"
+          description: |
+            Lets a client detect a badly skewed device clock and report it as a
+            clock problem rather than as wrong due dates.
+
+    TokenInfo:
+      type: object
+      required: [id, name, scopes, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        scopes:
+          type: array
+          items: { type: string, enum: [read, write] }
+        last_used_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        expires_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+          description: Null means it does not expire.
+        revoked_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    TokenCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: What holds it — a device or an integration.
+          examples: ["iPhone"]
+        scopes:
+          type: array
+          description: Defaults to both.
+          items: { type: string, enum: [read, write] }
+        expires_at:
+          type: string
+          format: date-time
+          description: RFC3339, and must be in the future. Omit for no expiry.
+
+    TokenCreated:
+      allOf:
+        - $ref: "#/components/schemas/TokenInfo"
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              description: |
+                The secret, shown once. Only its SHA-256 is stored, so it cannot be
+                retrieved again.
+              examples: ["cm_ysN0RYnz854hts0WDm2_9GMzzEuKXIRPaCEstjFON34"]
+
+    GrantSummary:
+      type: object
+      required: [id, client_id, client_name, scopes, audience, created_at, updated_at]
+      properties:
+        id: { type: string }
+        client_id: { type: string }
+        client_name:
+          type: string
+          description: |
+            From the client's own registration or metadata document, so it is
+            attacker-controlled text. Escape it.
+        client_uri: { type: ["string", "null"] }
+        scopes:
+          type: array
+          items: { type: string }
+        audience: { type: string }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        updated_at: { $ref: "#/components/schemas/Timestamp" }
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token: { type: string, examples: ["cmat_…"] }
+        token_type: { type: string, const: Bearer }
+        expires_in: { type: integer, description: Seconds. One hour. }
+        refresh_token:
+          type: string
+          description: Rotated on every use. Valid for 30 days.
+        scope: { type: string }
+
+    ClientRegistration:
+      type: object
+      required: [client_name, redirect_uris]
+      properties:
+        client_name: { type: string }
+        redirect_uris:
+          type: array
+          minItems: 1
+          items: { type: string }
+          description: |
+            https, or loopback http for a native client, or a reversed-domain
+            private-use scheme. Matched exactly at authorization time.
+        application_type:
+          type: string
+          enum: [native, web]
+          default: native
+          description: |
+            Defaults to `native`, unlike OIDC's `web`, because MCP clients are
+            overwhelmingly desktop and would otherwise have their loopback
+            redirects rejected.
+        grant_types:
+          type: array
+          items: { type: string, enum: [authorization_code, refresh_token] }
+        response_types:
+          type: array
+          items: { type: string, const: code }
+        token_endpoint_auth_method:
+          type: string
+          enum: [none, client_secret_basic, client_secret_post]
+          default: none
+        scope: { type: string }
+        client_uri: { type: string }
+        logo_uri: { type: string }
+        software_id: { type: string }
+        software_version: { type: string }
+
+    ClientRegistered:
+      type: object
+      required: [client_id, client_name, redirect_uris, client_id_issued_at]
+      properties:
+        client_id: { type: string }
+        client_name: { type: string }
+        client_uri: { type: string }
+        logo_uri: { type: string }
+        redirect_uris:
+          type: array
+          items: { type: string }
+        grant_types:
+          type: array
+          items: { type: string }
+        response_types:
+          type: array
+          items: { type: string }
+        scope: { type: string }
+        application_type: { type: string }
+        token_endpoint_auth_method: { type: string }
+        software_id: { type: string }
+        software_version: { type: string }
+        client_id_issued_at: { type: integer, description: Unix seconds. }
+        client_secret:
+          type: string
+          description: Only for a confidential client. Shown once.
+
+    TaskList:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+        next_cursor: { type: ["string", "null"] }
+
+    ContextList:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Context" }
+        next_cursor: { type: ["string", "null"] }
+
+    ProjectList:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Project" }
+        next_cursor: { type: ["string", "null"] }
+
+    PersonList:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Person" }
+        next_cursor: { type: ["string", "null"] }
+
+    RecurrenceList:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Recurrence" }
+        next_cursor: { type: ["string", "null"] }
+
+    TokenList:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/TokenInfo" }
+        next_cursor: { type: ["string", "null"] }
+
+    GrantList:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/GrantSummary" }
+        next_cursor: { type: ["string", "null"] }

@@ -129,6 +129,13 @@ func (s *Server) handleUpdateContext(w http.ResponseWriter, r *http.Request) {
 		v.add("archived", "cannot be null")
 	}
 
+	// sort_order is NOT NULL in the schema, so a null here would reach sqlite as
+	// a constraint violation and surface as a 500. A client mistake has to be
+	// reported as a client mistake.
+	if req.SortOrder.Set && req.SortOrder.Null {
+		v.add("sort_order", "cannot be null")
+	}
+
 	if v.any() {
 		s.writeStoreError(w, r, v)
 

@@ -114,6 +114,24 @@ func (p *params) limit() int {
 	return v
 }
 
+// enum reads a single value constrained to a fixed set, reporting the accepted
+// values when it does not match. Absent is not an error; the caller decides the
+// default.
+func (p *params) enum(key string, allowed []string) string {
+	raw := p.str(key)
+	if raw == "" {
+		return ""
+	}
+
+	if !slices.Contains(allowed, raw) {
+		p.errors.add(key, "must be one of "+strings.Join(allowed, ", "))
+
+		return ""
+	}
+
+	return raw
+}
+
 // date reads a YYYY-MM-DD parameter.
 func (p *params) date(key string) string {
 	raw := p.str(key)

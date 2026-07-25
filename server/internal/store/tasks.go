@@ -88,6 +88,15 @@ type TaskFilter struct {
 	DueAfter      string
 
 	Search string
+
+	// Sort names the column to order by and Order the direction. Empty means
+	// newest-created-first, which the primary key already provides.
+	//
+	// Validate with ValidSortField and ValidSortOrder before calling; an
+	// unrecognised value falls back to the default rather than erroring here,
+	// because by then the HTTP layer has already had its chance to reject it.
+	Sort  string
+	Order string
 }
 
 // ListTasks returns the caller's tasks, newest first.
@@ -153,14 +162,23 @@ func (s *Store) ListTasks(ctx context.Context, userID string, f TaskFilter) ([]m
 			likeArg(f.Search), likeArg(f.Search))
 	}
 
-	if f.Cursor != "" {
-		c.add("id < ?", f.Cursor)
+	plan := resolveSort(f.Sort, f.Order)
+
+	cursor, err := decodeCursor(f.Cursor)
+	if err != nil {
+		return nil, "", &ConflictError{Field: "cursor", Detail: "is not valid for this sort"}
+	}
+
+	if err := plan.applyKeyset(c, cursor); err != nil {
+		return nil, "", &ConflictError{Field: "cursor", Detail: "is not valid for this sort"}
 	}
 
 	limit := f.normalize()
 
+	// Over-fetch by one to detect whether another page exists.
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+taskColumns+` FROM tasks_with_kind`+c.clause()+` ORDER BY id DESC LIMIT ?`,
+		`SELECT `+plan.selectColumns(taskColumns)+` FROM tasks_with_kind`+
+			c.clause()+plan.orderBy()+` LIMIT ?`,
 		append(c.args, limit+1)...,
 	)
 	if err != nil {
@@ -168,22 +186,67 @@ func (s *Store) ListTasks(ctx context.Context, userID string, f TaskFilter) ([]m
 	}
 	defer rows.Close()
 
-	var out []model.Task
+	var (
+		out  []model.Task
+		keys []*string
+	)
 
 	for rows.Next() {
-		v, err := scanTask(rows)
+		v, key, err := scanSortedTask(rows, plan)
 		if err != nil {
 			return nil, "", err
 		}
 
 		out = append(out, v)
+		keys = append(keys, key)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, "", fmt.Errorf("store: list tasks: %w", err)
 	}
 
-	return page(out, limit, func(v model.Task) string { return v.ID })
+	if len(out) <= limit {
+		return out, "", nil
+	}
+
+	// The cursor is built from the last row actually returned, and from the key
+	// sqlite computed for it, so the next page resumes at exactly this position
+	// even where a collation makes Go's idea of the value differ.
+	out = out[:limit]
+
+	return out, plan.nextCursor(out[limit-1].ID, keys[limit-1]), nil
+}
+
+// scanSortedTask scans a task row, plus the sort key when the query selected one.
+func scanSortedTask(rows *sql.Rows, plan sortPlan) (model.Task, *string, error) {
+	if plan.byIDOnly {
+		task, err := scanTask(rows)
+
+		return task, nil, err
+	}
+
+	// The key column is appended to the projection, so it scans last. Sorting on a
+	// nullable column uses a coalesce, so the key itself is never NULL; the
+	// pointer is scanned defensively rather than assumed.
+	var (
+		task model.Task
+		key  sql.NullString
+	)
+
+	dest := taskScanTargets(&task)
+	dest = append(dest, &key)
+
+	if err := rows.Scan(dest...); err != nil {
+		return model.Task{}, nil, notFoundOr(err, "scan sorted task")
+	}
+
+	if !key.Valid {
+		return task, nil, nil
+	}
+
+	value := key.String
+
+	return task, &value, nil
 }
 
 // GetTask returns one task owned by userID.
@@ -579,14 +642,23 @@ func getTaskTx(ctx context.Context, tx *sql.Tx, userID, taskID string) (model.Ta
 	return scanTask(row)
 }
 
+// taskScanTargets lists the scan destinations for taskColumns, in order.
+//
+// Shared with the sorted path, which appends the sort key, so the two cannot drift
+// apart when a column is added.
+func taskScanTargets(v *model.Task) []any {
+	return []any{
+		&v.ID, &v.ContextID, &v.ProjectID, &v.ParentID, &v.RecurrenceID, &v.OccurrenceOn,
+		&v.Source, &v.CaptureMethod, &v.Title, &v.Details, &v.Status, &v.DueOn, &v.PlannedOn,
+		&v.EstimateMinutes, &v.DelegatedToID, &v.BlockedByID, &v.ReferenceURL, &v.ReferenceLabel,
+		&v.Kind, &v.CompletedAt, &v.CancelledAt, &v.CreatedAt, &v.UpdatedAt, &v.DeletedAt, &v.Rev,
+	}
+}
+
 func scanTask(sc scanner) (model.Task, error) {
 	var v model.Task
 
-	err := sc.Scan(&v.ID, &v.ContextID, &v.ProjectID, &v.ParentID, &v.RecurrenceID, &v.OccurrenceOn,
-		&v.Source, &v.CaptureMethod, &v.Title, &v.Details, &v.Status, &v.DueOn, &v.PlannedOn,
-		&v.EstimateMinutes, &v.DelegatedToID, &v.BlockedByID, &v.ReferenceURL, &v.ReferenceLabel,
-		&v.Kind, &v.CompletedAt, &v.CancelledAt, &v.CreatedAt, &v.UpdatedAt, &v.DeletedAt, &v.Rev)
-	if err != nil {
+	if err := sc.Scan(taskScanTargets(&v)...); err != nil {
 		return model.Task{}, notFoundOr(err, "scan task")
 	}
 
