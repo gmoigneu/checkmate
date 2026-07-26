@@ -161,13 +161,12 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				event.preventDefault();
 				setCaptureOpen(true);
 			}
-			if (
-				event.key.toLowerCase() === "c" &&
-				!(
-					event.target instanceof HTMLInputElement ||
-					event.target instanceof HTMLTextAreaElement
-				)
-			)
+			const target = event.target;
+			const isTypingTarget =
+				target instanceof HTMLElement &&
+				(target.matches("input, textarea, select, [contenteditable='true']") ||
+					Boolean(target.closest('[role="menu"]')));
+			if (event.key.toLowerCase() === "c" && !isTypingTarget)
 				setCaptureOpen(true);
 		};
 		window.addEventListener("keydown", handler);
@@ -184,7 +183,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 	}, [location.pathname, needsAuthentication]);
 	if (needsAuthentication) return null;
 
-	const isLoading = me.isLoading || contexts.isLoading || brief.isLoading;
+	const isLoading = me.isLoading || contexts.isLoading;
 	const invalidate = () =>
 		queryClient.invalidateQueries({ queryKey: ["brief"] });
 	const appContexts = contexts.data?.data ?? [];
@@ -194,9 +193,9 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 	const content = () => {
 		const loadedBrief = brief.data;
 		if (isLoading) return <LoadingPage />;
-		if (brief.error) return <ErrorState onRetry={invalidate} />;
-		if (!loadedBrief) return <LoadingPage />;
-		if (page === "brief")
+		if (page === "brief") {
+			if (brief.error) return <ErrorState onRetry={invalidate} />;
+			if (!loadedBrief) return <LoadingPage />;
 			return (
 				<BriefPage
 					brief={loadedBrief}
@@ -204,10 +203,10 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 					onOpenCapture={() => setCaptureOpen(true)}
 				/>
 			);
+		}
 		if (page === "inbox")
 			return <InboxPage contexts={appContexts} people={appPeople} />;
-		if (page === "waiting")
-			return <WaitingPage brief={loadedBrief} contexts={appContexts} />;
+		if (page === "waiting") return <WaitingPage contexts={appContexts} />;
 		if (page === "repeating")
 			return (
 				<TaskListPage
@@ -1491,20 +1490,14 @@ function TaskListPage({
 	);
 }
 
-function WaitingPage({
-	brief,
-	contexts,
-}: {
-	brief: Brief;
-	contexts: Context[];
-}) {
+function WaitingPage({ contexts }: { contexts: Context[] }) {
 	const [contextId, setContextId] = useState<string>();
 	const date = todayString();
 	const query = useQuery({
 		queryKey: briefQueryKey(date, contextId),
 		queryFn: () => api.brief(date, contextId),
 	});
-	const data = query.data ?? brief;
+	const data = query.data;
 	return (
 		<section>
 			<div className="mb-8 flex flex-wrap items-end justify-between gap-4">
@@ -1521,7 +1514,9 @@ function WaitingPage({
 					label="Filter waiting on by context"
 				/>
 			</div>
-			{!query.data ? (
+			{query.error ? (
+				<ErrorState onRetry={() => query.refetch()} />
+			) : !data ? (
 				<LoadingPage />
 			) : data.waiting_on.length ? (
 				<WaitingSection groups={data.waiting_on} contexts={contexts} />
