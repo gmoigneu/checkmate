@@ -21,6 +21,34 @@ var routineOpenStatuses = []string{
 	model.StatusDelegated,
 }
 
+type routineExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func expireRoutineOccurrences(
+	ctx context.Context,
+	exec routineExecer,
+	expiredAt, where string,
+	args ...any,
+) (sql.Result, error) {
+	queryArgs := append([]any{expiredAt, expiredAt}, args...)
+
+	// where is always a package-owned literal; only queryArgs carry data.
+	return exec.ExecContext(ctx, `
+		UPDATE tasks
+		SET status = 'cancelled',
+		    completed_at = NULL,
+		    cancelled_at = NULL,
+		    expired_at = ?,
+		    updated_at = ?
+		WHERE `+where+`
+		  AND deleted_at IS NULL
+		  AND expired_at IS NULL
+		  AND status IN `+routineOpenStatusesSQL,
+		queryArgs...,
+	)
+}
+
 // ExpireRoutineTasks closes routine occurrences whose account-local day has
 // ended. Expiration is terminal: the stored cancelled status satisfies the
 // original table constraint, while expired_at makes the API expose "expired".
@@ -110,18 +138,8 @@ func (s *Store) expireRoutineTaskIDs(ctx context.Context, ids []string, now time
 	expired := 0
 
 	for _, taskID := range ids {
-		res, err := tx.ExecContext(ctx, `
-			UPDATE tasks
-			SET status = 'cancelled',
-			    completed_at = NULL,
-			    cancelled_at = NULL,
-			    expired_at = ?,
-			    updated_at = ?
-			WHERE id = ?
-			  AND deleted_at IS NULL
-			  AND expired_at IS NULL
-			  AND status IN `+routineOpenStatusesSQL,
-			expiredAt, expiredAt, taskID,
+		res, err := expireRoutineOccurrences(
+			ctx, tx, expiredAt, "id = ?", taskID,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("store: expire routine task: %w", err)
@@ -198,14 +216,9 @@ func (s *Store) ReconcileRoutineOccurrence(
 	now time.Time,
 ) error {
 	if !applies {
-		_, err := s.db.ExecContext(ctx, `
-			UPDATE tasks
-			SET status = 'cancelled', completed_at = NULL, cancelled_at = NULL,
-			    expired_at = ?, updated_at = ?
-			WHERE user_id = ? AND recurrence_id = ? AND occurrence_on = ?
-			  AND deleted_at IS NULL AND expired_at IS NULL
-			  AND status IN `+routineOpenStatusesSQL,
-			now.UTC().Format(database.Timestamp), now.UTC().Format(database.Timestamp),
+		_, err := expireRoutineOccurrences(
+			ctx, s.db, now.UTC().Format(database.Timestamp),
+			"user_id = ? AND recurrence_id = ? AND occurrence_on = ?",
 			template.UserID, template.ID, occurrenceOn,
 		)
 		if err != nil {
@@ -245,13 +258,9 @@ func expireOpenRoutineOccurrencesTx(
 	tx *sql.Tx,
 	userID, recurrenceID string,
 ) error {
-	_, err := tx.ExecContext(ctx, `
-		UPDATE tasks
-		SET status = 'cancelled', completed_at = NULL, cancelled_at = NULL,
-		    expired_at = `+nowExpr+`, updated_at = `+nowExpr+`
-		WHERE user_id = ? AND recurrence_id = ?
-		  AND deleted_at IS NULL AND expired_at IS NULL
-		  AND status IN `+routineOpenStatusesSQL,
+	_, err := expireRoutineOccurrences(
+		ctx, tx, time.Now().UTC().Format(database.Timestamp),
+		"user_id = ? AND recurrence_id = ?",
 		userID, recurrenceID,
 	)
 	if err != nil {
