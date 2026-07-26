@@ -4,7 +4,6 @@ import {
 	ArrowLeft,
 	ArrowRight,
 	CalendarDays,
-	Check,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
@@ -27,6 +26,7 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { TaskStatusMenu } from "@/components/task-status-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -43,7 +43,14 @@ import {
 	formatMinutes,
 	todayString,
 } from "@/lib/format";
-import type { Brief, Context, Person, Task, TaskPriority } from "@/lib/types";
+import type {
+	Brief,
+	Context,
+	Person,
+	Task,
+	TaskPriority,
+	TaskStatus,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Page =
@@ -73,6 +80,22 @@ const priorityOptions: Array<{ value: TaskPriority; label: string }> = [
 	{ value: "medium", label: "Medium" },
 	{ value: "low", label: "Low" },
 ];
+
+function refreshTaskQueries(
+	queryClient: ReturnType<typeof useQueryClient>,
+	task: Task,
+) {
+	queryClient.setQueryData(["task", task.id], task);
+	for (const queryKey of [
+		["brief"],
+		["inbox"],
+		["tasks"],
+		["context-tasks"],
+		["project-tasks"],
+	]) {
+		queryClient.invalidateQueries({ queryKey });
+	}
+}
 
 function PriorityBadge({ priority }: { priority: TaskPriority }) {
 	const label =
@@ -842,9 +865,8 @@ function TaskRow({
 	);
 	const contextIndex = context ? (contexts?.indexOf(context) ?? 0) : 0;
 	const mutation = useMutation({
-		mutationFn: () =>
-			api.updateTask(task.id, { status: isDone ? "todo" : "done" }),
-		onSuccess: () => queryClient.invalidateQueries({ queryKey: ["brief"] }),
+		mutationFn: (status: TaskStatus) => api.updateTask(task.id, { status }),
+		onSuccess: (updatedTask) => refreshTaskQueries(queryClient, updatedTask),
 	});
 	return (
 		<div
@@ -854,23 +876,12 @@ function TaskRow({
 				isDone && "cm-task-row-done",
 			)}
 		>
-			<button
-				type="button"
-				className={cn("cm-completion", isDone && "cm-completion-done")}
-				onClick={(event) => {
-					event.preventDefault();
-					mutation.mutate();
-				}}
-				aria-label={`${isDone ? "Mark" : "Mark"} ${task.title} ${
-					isDone ? "as not done" : "as done"
-				}`}
-			>
-				{isDone ? (
-					<Check className="size-3" />
-				) : mutation.isPending ? (
-					<LoaderCircle className="size-3 animate-spin" />
-				) : null}
-			</button>
+			<TaskStatusMenu
+				status={task.status}
+				onStatusChange={(status) => mutation.mutate(status)}
+				disabled={mutation.isPending}
+				taskTitle={task.title}
+			/>
 			<Link
 				to="/t/$taskId"
 				params={{ taskId: task.id }}
@@ -1650,11 +1661,7 @@ function TaskDetail({
 	const update = useMutation({
 		mutationFn: (body: Record<string, unknown>) => api.updateTask(taskId, body),
 		onSuccess: (task) => {
-			queryClient.setQueryData(["task", taskId], task);
-			queryClient.invalidateQueries({ queryKey: ["brief"] });
-			queryClient.invalidateQueries({ queryKey: ["tasks"] });
-			queryClient.invalidateQueries({ queryKey: ["context-tasks"] });
-			queryClient.invalidateQueries({ queryKey: ["project-tasks"] });
+			refreshTaskQueries(queryClient, task);
 			setEditing(false);
 		},
 	});
@@ -1685,27 +1692,13 @@ function TaskDetail({
 				) : task ? (
 					<div className="p-6">
 						<div className="flex gap-3">
-							<button
-								type="button"
-								className={cn(
-									"mt-1 grid size-6 shrink-0 place-items-center rounded-full border",
-									task.status === "done"
-										? "border-[var(--sage)] bg-[var(--sage)] text-white"
-										: "border-muted-foreground/50",
-								)}
-								onClick={() =>
-									update.mutate({
-										status: task.status === "done" ? "todo" : "done",
-									})
-								}
-								aria-label={
-									task.status === "done"
-										? `Mark ${task.title} as not done`
-										: `Mark ${task.title} as done`
-								}
-							>
-								{task.status === "done" ? <Check className="size-4" /> : null}
-							</button>
+							<TaskStatusMenu
+								status={task.status}
+								onStatusChange={(status) => update.mutate({ status })}
+								disabled={update.isPending}
+								className="mt-1"
+								taskTitle={task.title}
+							/>
 							<div className="min-w-0 flex-1">
 								{editing ? (
 									<Input
@@ -1732,21 +1725,11 @@ function TaskDetail({
 						</div>
 						<div className="mt-8 divide-y divide-border rounded-2xl border border-border">
 							<Field label="Status">
-								<select
-									value={task.status}
-									onChange={(event) =>
-										update.mutate({ status: event.target.value })
-									}
-									className="bg-transparent text-sm outline-none"
-								>
-									<option value="inbox">Inbox</option>
-									<option value="todo">To do</option>
-									<option value="in_progress">In progress</option>
-									<option value="blocked">Blocked</option>
-									<option value="delegated">Waiting on</option>
-									<option value="done">Done</option>
-									<option value="cancelled">Cancelled</option>
-								</select>
+								<TaskStatusMenu
+									status={task.status}
+									onStatusChange={(status) => update.mutate({ status })}
+									disabled={update.isPending}
+								/>
 							</Field>
 							<Field label="Priority">
 								<select
