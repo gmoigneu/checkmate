@@ -101,6 +101,18 @@ func TestLoadCreatesRepresentativeDataset(t *testing.T) {
 			activeRecurrences, pausedRecurrences, finishedRecurrences)
 	}
 
+	var dueActiveRecurrences int
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM recurrences
+		WHERE user_id = ? AND active = 1 AND next_occurrence_on <= '2026-07-26'`,
+		user.ID).Scan(&dueActiveRecurrences); err != nil {
+		t.Fatal(err)
+	}
+	if dueActiveRecurrences != 0 {
+		t.Fatalf("active recurrences still due = %d, want 0", dueActiveRecurrences)
+	}
+
 	if err := db.QueryRowContext(ctx,
 		`SELECT count(*) FROM contexts WHERE user_id = ? AND archived_at IS NOT NULL`,
 		user.ID).Scan(&archivedContexts); err != nil {

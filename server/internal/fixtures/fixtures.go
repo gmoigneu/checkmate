@@ -301,7 +301,7 @@ func (l *loader) loadRecurrences(
 	nextFriday := onOrAfter(l.today.AddDate(0, 0, 1), time.Friday)
 	lastFriday := nextFriday.AddDate(0, 0, -7)
 	monthlyStart := firstOfMonth(l.start)
-	nextMonth := firstOfMonth(l.today.AddDate(0, 1, 0))
+	nextMonth := firstOfNextMonth(l.today)
 	lastMonth := firstOfMonth(l.today)
 	finishedStart := onOrAfter(l.start, time.Wednesday)
 	finishedEnd := finishedStart.AddDate(0, 0, 35)
@@ -406,7 +406,7 @@ func (l *loader) loadRecurrenceHistory(recurrences map[string]recurrenceSpec) er
 
 	monthly := recurrences["Reconcile household expenses"]
 	for day := monthly.StartsOn; !day.After(l.today); day = day.AddDate(0, 1, 0) {
-		completedAt := l.timestamp(day.AddDate(0, 0, 2), 19)
+		completedAt := l.timestamp(day.AddDate(0, 0, 2), 16)
 		if err := l.insertTask(taskSpec{
 			ID: id.New(), ContextID: &monthly.ContextID, ProjectID: monthly.ProjectID,
 			RecurrenceID: &monthly.ID, OccurrenceOn: &day, Source: monthly.Source,
@@ -714,6 +714,10 @@ func onOrAfter(day time.Time, weekday time.Weekday) time.Time {
 
 func firstOfMonth(day time.Time) time.Time {
 	return time.Date(day.Year(), day.Month(), 1, 0, 0, 0, 0, day.Location())
+}
+
+func firstOfNextMonth(day time.Time) time.Time {
+	return time.Date(day.Year(), day.Month()+1, 1, 0, 0, 0, 0, day.Location())
 }
 
 func optionalDelegate(i int, people map[string]string) *string {
