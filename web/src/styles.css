@@ -104,6 +104,9 @@
   --task-cancelled-fg: var(--rust-600);
   --task-cancelled-bg: var(--rust-100);
   --task-cancelled-border: #e3b7ab;
+  --task-expired-fg: var(--ink-400);
+  --task-expired-bg: var(--paper-100);
+  --task-expired-border: var(--paper-300);
   --success: var(--olive-500);
 
   --page: var(--surface-page);
@@ -139,6 +142,132 @@
   --shadow-inset: inset 0 1px 2px rgb(46 33 22 / 8%);
   --shadow-lg: 0 12px 32px rgb(46 33 22 / 14%), 0 2px 8px rgb(46 33 22 / 6%);
   --shadow-accent: 0 6px 18px rgb(192 94 60 / 24%);
+}
+
+.cm-status-expired {
+  border-color: var(--task-expired-border);
+  background: var(--task-expired-bg);
+  color: var(--task-expired-fg);
+}
+
+.cm-slot-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--ochre-300);
+  border-radius: 999px;
+  background: var(--ochre-050);
+  color: var(--ochre-600);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+}
+
+.cm-routine-slot {
+  overflow: hidden;
+  min-height: 180px;
+  border: 1px solid var(--border-default);
+  border-radius: 18px;
+  background: var(--surface-card);
+}
+
+.cm-routine-slot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(135deg, var(--ochre-050), var(--paper-000));
+}
+
+.cm-routine-slot-header h2 {
+  margin: 0;
+  font-size: 21px;
+  letter-spacing: -.01em;
+}
+
+.cm-routine-slot-header p {
+  margin: 1px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.cm-routine-items {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cm-routine-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: grab;
+  transition: background .15s ease;
+}
+
+.cm-routine-item:last-child {
+  border-bottom: 0;
+}
+
+.cm-routine-item:hover {
+  background: var(--surface-hover);
+}
+
+.cm-routine-item:active {
+  cursor: grabbing;
+}
+
+.cm-routine-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 112px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  transition: color .15s ease, background .15s ease;
+}
+
+.cm-routine-empty:hover {
+  background: var(--surface-hover);
+  color: var(--text-accent);
+}
+
+.cm-routine-brief {
+  padding: 14px;
+  border: 1px solid var(--ochre-300);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--ochre-050) 65%, transparent);
+}
+
+.cm-routine-brief-groups {
+  display: grid;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.cm-routine-brief-group > p {
+  margin: 0 0 5px 4px;
+  color: var(--ochre-600);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.cm-routine-brief-group .cm-task-list {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 11px;
+  background: var(--surface-card);
 }
 
 * {

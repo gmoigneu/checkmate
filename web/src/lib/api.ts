@@ -6,6 +6,7 @@ import type {
 	Me,
 	Person,
 	Project,
+	Recurrence,
 	Task,
 } from "./types";
 
@@ -55,6 +56,20 @@ export const api = {
 	people: () => request<Collection<Person>>("/v1/people?limit=200"),
 	tasks: (params: URLSearchParams) =>
 		request<Collection<Task>>(`/v1/tasks?${params}`),
+	routines: () =>
+		request<Collection<Recurrence>>("/v1/recurrences?kind=routine&limit=200"),
+	createRoutine: (body: Record<string, unknown>) =>
+		request<Recurrence>("/v1/recurrences", {
+			method: "POST",
+			body: JSON.stringify({ ...body, kind: "routine" }),
+		}),
+	updateRoutine: (id: string, body: Record<string, unknown>) =>
+		request<Recurrence>(`/v1/recurrences/${id}`, {
+			method: "PATCH",
+			body: JSON.stringify(body),
+		}),
+	deleteRoutine: (id: string) =>
+		request<void>(`/v1/recurrences/${id}`, { method: "DELETE" }),
 	task: (id: string) => request<Task>(`/v1/tasks/${id}`),
 	createTask: (body: Record<string, unknown>) =>
 		request<Task>("/v1/tasks", { method: "POST", body: JSON.stringify(body) }),

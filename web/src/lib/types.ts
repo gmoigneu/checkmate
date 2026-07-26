@@ -5,10 +5,18 @@ export type TaskStatus =
 	| "blocked"
 	| "delegated"
 	| "done"
-	| "cancelled";
+	| "cancelled"
+	| "expired";
 
-export type TaskKind = "short" | "long" | "blocked" | "delegated" | "recurring";
+export type TaskKind =
+	| "short"
+	| "long"
+	| "blocked"
+	| "delegated"
+	| "recurring"
+	| "routine";
 export type TaskPriority = "urgent" | "high" | "medium" | "low";
+export type DaySlot = "morning" | "midday" | "afternoon" | "evening" | "night";
 
 export interface Context {
 	id: string;
@@ -49,6 +57,8 @@ export interface Task {
 	priority: TaskPriority | null;
 	due_on: string | null;
 	planned_on: string | null;
+	day_slot: DaySlot | null;
+	slot_order: number;
 	estimate_minutes: number | null;
 	delegated_to_id: string | null;
 	delegated_to_name?: string | null;
@@ -58,6 +68,34 @@ export interface Task {
 	kind: TaskKind;
 	completed_at: string | null;
 	cancelled_at: string | null;
+	expired_at: string | null;
+	created_at: string;
+	updated_at: string;
+	deleted_at: string | null;
+}
+
+export interface Recurrence {
+	id: string;
+	kind: "classic" | "routine";
+	context_id: string;
+	project_id: string | null;
+	source: string | null;
+	title: string;
+	details: string | null;
+	day_slot: DaySlot | null;
+	slot_order: number;
+	rrule: string;
+	timezone: string;
+	estimate_minutes: number | null;
+	delegated_to_id: string | null;
+	lead_days: number;
+	starts_on: string;
+	ends_on: string | null;
+	next_occurrence_on: string | null;
+	last_spawned_on: string | null;
+	active: boolean;
+	state: "active" | "paused" | "finished";
+	completed_at: string | null;
 	created_at: string;
 	updated_at: string;
 	deleted_at: string | null;
@@ -79,6 +117,10 @@ export interface BriefTotals {
 	in_progress: number;
 	completed_today: number;
 	cancelled_today?: number;
+	routine: number;
+	routine_open: number;
+	routine_done: number;
+	routine_expired: number;
 	planned_minutes: number;
 	planned_without_estimate: number;
 }
@@ -92,6 +134,7 @@ export interface Brief {
 	inbox: Task[];
 	blocked: Task[];
 	waiting_on: WaitingGroup[];
+	routine: Task[];
 	completed_today: Task[];
 	cancelled_today?: Task[];
 	totals: BriefTotals;

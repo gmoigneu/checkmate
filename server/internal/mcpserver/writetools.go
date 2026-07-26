@@ -45,7 +45,8 @@ func (h *Handler) addWriteTools(server *mcp.Server) {
 		Description: "Create a task. Only the title is required. Leave context_id out " +
 			"to capture into the inbox for the user to triage later, which is the right " +
 			"choice when the area is not obvious. Set due_on for a real deadline and " +
-			"planned_on for the day the user intends to do it.",
+			"planned_on for the day the user intends to do it. A day_slot can organize " +
+			"a planned task into morning, midday, afternoon, evening or night.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: false},
 	}), h.createTask)
 
@@ -128,6 +129,8 @@ type createTaskInput struct {
 	ParentID        string `json:"parent_id,omitempty" jsonschema:"make this a subtask of another task"`
 	DueOn           string `json:"due_on,omitempty" jsonschema:"YYYY-MM-DD deadline"`
 	PlannedOn       string `json:"planned_on,omitempty" jsonschema:"YYYY-MM-DD day to work on it"`
+	DaySlot         string `json:"day_slot,omitempty" jsonschema:"morning, midday, afternoon, evening or night; requires planned_on"`
+	SlotOrder       int64  `json:"slot_order,omitempty" jsonschema:"manual position inside the day slot; zero is first"`
 	Priority        string `json:"priority,omitempty" jsonschema:"urgent, high, medium or low"`
 	EstimateMinutes int64  `json:"estimate_minutes,omitempty" jsonschema:"how long it should take, in minutes"`
 	DelegateTo      string `json:"delegate_to,omitempty" jsonschema:"a person's name to delegate this to immediately"`
@@ -172,6 +175,19 @@ func (h *Handler) createTask(
 			in.Priority, strings.Join(model.TaskPriorities, ", ")), taskResult{}, nil
 	}
 
+	if in.DaySlot != "" && !containsStr(model.DaySlots, in.DaySlot) {
+		return toolError("day_slot %q is not valid; use one of: %s",
+			in.DaySlot, strings.Join(model.DaySlots, ", ")), taskResult{}, nil
+	}
+
+	if in.DaySlot != "" && in.PlannedOn == "" {
+		return toolError("planned_on is required when day_slot is set"), taskResult{}, nil
+	}
+
+	if in.SlotOrder < 0 {
+		return toolError("slot_order must be zero or greater"), taskResult{}, nil
+	}
+
 	params := store.TaskCreate{
 		Title:          strings.TrimSpace(in.Title),
 		CaptureMethod:  captureMethod,
@@ -181,10 +197,16 @@ func (h *Handler) createTask(
 		ParentID:       optional(in.ParentID),
 		DueOn:          optional(in.DueOn),
 		PlannedOn:      optional(in.PlannedOn),
+		DaySlot:        optional(in.DaySlot),
 		Priority:       optional(in.Priority),
 		Source:         optional(in.Source),
 		ReferenceURL:   optional(in.ReferenceURL),
 		ReferenceLabel: optional(in.ReferenceLabel),
+	}
+
+	if in.SlotOrder > 0 {
+		slotOrder := in.SlotOrder
+		params.SlotOrder = &slotOrder
 	}
 
 	if in.EstimateMinutes > 0 {
@@ -221,12 +243,15 @@ type updateTaskInput struct {
 	ProjectID       string `json:"project_id,omitempty"`
 	DueOn           string `json:"due_on,omitempty" jsonschema:"YYYY-MM-DD"`
 	PlannedOn       string `json:"planned_on,omitempty" jsonschema:"YYYY-MM-DD"`
+	DaySlot         string `json:"day_slot,omitempty" jsonschema:"morning, midday, afternoon, evening or night; requires a planned date"`
+	SlotOrder       *int64 `json:"slot_order,omitempty" jsonschema:"manual position inside the day slot; zero is first"`
 	Priority        string `json:"priority,omitempty" jsonschema:"urgent, high, medium or low"`
 	EstimateMinutes int64  `json:"estimate_minutes,omitempty"`
 	BlockedByID     string `json:"blocked_by_id,omitempty" jsonschema:"the id of the task blocking this one; also sets the status to blocked"`
 
 	ClearDueOn     bool `json:"clear_due_on,omitempty" jsonschema:"remove the due date"`
 	ClearPlannedOn bool `json:"clear_planned_on,omitempty" jsonschema:"remove the planned date"`
+	ClearDaySlot   bool `json:"clear_day_slot,omitempty" jsonschema:"remove the morning, midday, afternoon, evening or night slot"`
 	ClearPriority  bool `json:"clear_priority,omitempty" jsonschema:"remove the priority"`
 	ClearBlocker   bool `json:"clear_blocker,omitempty" jsonschema:"remove the blocker and return the task to todo"`
 }
@@ -257,14 +282,23 @@ func (h *Handler) updateTask(
 		return toolError("use delegate_task to delegate a task, so a person is named"), taskResult{}, nil
 	}
 
-	if in.Status != "" && !containsStr(model.TaskStatuses, in.Status) {
+	if in.Status != "" && !containsStr(model.WritableTaskStatuses, in.Status) {
 		return toolError("status %q is not valid; use one of: %s",
-			in.Status, strings.Join(model.TaskStatuses, ", ")), taskResult{}, nil
+			in.Status, strings.Join(model.WritableTaskStatuses, ", ")), taskResult{}, nil
 	}
 
 	if in.Priority != "" && !containsStr(model.TaskPriorities, in.Priority) {
 		return toolError("priority %q is not valid; use one of: %s",
 			in.Priority, strings.Join(model.TaskPriorities, ", ")), taskResult{}, nil
+	}
+
+	if in.DaySlot != "" && !containsStr(model.DaySlots, in.DaySlot) {
+		return toolError("day_slot %q is not valid; use one of: %s",
+			in.DaySlot, strings.Join(model.DaySlots, ", ")), taskResult{}, nil
+	}
+
+	if in.SlotOrder != nil && *in.SlotOrder < 0 {
+		return toolError("slot_order must be zero or greater"), taskResult{}, nil
 	}
 
 	params := store.TaskUpdate{
@@ -280,6 +314,16 @@ func (h *Handler) updateTask(
 	// can reliably fill in.
 	params.DueOn = dateField(in.DueOn, in.ClearDueOn)
 	params.PlannedOn = dateField(in.PlannedOn, in.ClearPlannedOn)
+	switch {
+	case in.ClearPlannedOn || in.ClearDaySlot:
+		params.DaySlot = patch.Field[string]{Set: true, Null: true}
+	case in.DaySlot != "":
+		params.DaySlot = patch.Field[string]{Set: true, Value: in.DaySlot}
+	}
+
+	if in.SlotOrder != nil {
+		params.SlotOrder = patch.Field[int64]{Set: true, Value: *in.SlotOrder}
+	}
 	switch {
 	case in.ClearPriority:
 		params.Priority = patch.Field[string]{Set: true, Null: true}

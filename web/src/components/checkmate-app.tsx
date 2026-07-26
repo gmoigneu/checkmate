@@ -23,9 +23,11 @@ import {
 	Settings,
 	Sparkles,
 	Sun,
+	Sunrise,
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { RoutinePage } from "@/components/routine-page";
 import { TaskStatusMenu } from "@/components/task-status-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +49,7 @@ import { taskListStatusFilters, taskStatusOptions } from "@/lib/status";
 import type {
 	Brief,
 	Context,
+	DaySlot,
 	Person,
 	Task,
 	TaskPriority,
@@ -59,6 +62,7 @@ type Page =
 	| "inbox"
 	| "tasks"
 	| "waiting"
+	| "routine"
 	| "repeating"
 	| "blocked"
 	| "settings"
@@ -118,6 +122,7 @@ function pageForPath(pathname: string): Page {
 	if (pathname === "/") return "brief";
 	if (pathname.startsWith("/inbox")) return "inbox";
 	if (pathname.startsWith("/waiting")) return "waiting";
+	if (pathname.startsWith("/routine")) return "routine";
 	if (pathname.startsWith("/repeating")) return "repeating";
 	if (pathname.startsWith("/blocked")) return "blocked";
 	if (pathname.startsWith("/settings")) return "settings";
@@ -214,6 +219,15 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		if (page === "inbox")
 			return <InboxPage contexts={appContexts} people={appPeople} />;
 		if (page === "waiting") return <WaitingPage contexts={appContexts} />;
+		if (page === "routine")
+			return (
+				<RoutinePage
+					contexts={appContexts}
+					projects={appProjects}
+					timezone={me.data?.timezone ?? "UTC"}
+					today={todayString(me.data?.timezone)}
+				/>
+			);
 		if (page === "repeating")
 			return (
 				<TaskListPage
@@ -446,6 +460,19 @@ function Sidebar({
 			<div className="cm-sidebar-gap" />
 			<nav className="cm-sidebar-group" aria-label="Supporting views">
 				<Link
+					to="/routine"
+					className={cn(
+						"cm-sidebar-item",
+						page === "routine" && "cm-sidebar-item-selected",
+					)}
+				>
+					<span className="cm-sidebar-label">
+						<Sunrise className="size-[17px] text-[var(--status-today)]" />
+						Daily Routine
+					</span>
+					<Count value={brief?.totals.routine_open ?? 0} />
+				</Link>
+				<Link
 					to="/waiting"
 					className={cn(
 						"cm-sidebar-item",
@@ -616,14 +643,12 @@ function BriefPage({
 		canonical.inProgress.length +
 		canonical.waitingOn.reduce((sum, group) => sum + group.tasks.length, 0) +
 		canonical.blocked.length +
-		canonical.inbox.length;
+		canonical.inbox.length +
+		data.totals.routine_open;
+	const completedWork = data.totals.completed_today + data.totals.routine_done;
 	const doneRatio =
-		data.totals.completed_today + openWork
-			? Math.round(
-					(data.totals.completed_today /
-						(data.totals.completed_today + openWork)) *
-						100,
-				)
+		completedWork + openWork
+			? Math.round((completedWork / (completedWork + openWork)) * 100)
 			: 0;
 	const perfect = !openWork;
 	return (
@@ -691,6 +716,11 @@ function BriefPage({
 							</span>
 							<i>·</i>
 							<span className="cm-summary-stat">
+								<strong>{data.totals.routine_open}</strong>
+								<span>routine</span>
+							</span>
+							<i>·</i>
+							<span className="cm-summary-stat">
 								<strong>{formatMinutes(data.totals.planned_minutes)}</strong>
 								{data.totals.planned_without_estimate
 									? ` (${data.totals.planned_without_estimate} without estimate)`
@@ -705,8 +735,7 @@ function BriefPage({
 								/>
 							</div>
 							<span>
-								{data.totals.completed_today} of{" "}
-								{data.totals.completed_today + openWork} done today
+								{completedWork} of {completedWork + openWork} done today
 							</span>
 						</div>
 					</div>
@@ -716,6 +745,12 @@ function BriefPage({
 						tasks={canonical.overdue}
 						tone="overdue"
 						contexts={contexts}
+					/>
+					<RoutineBriefSection
+						tasks={data.routine}
+						contexts={contexts}
+						total={data.totals.routine}
+						done={data.totals.routine_done}
 					/>
 					<BriefSection
 						title="Due today"
@@ -774,6 +809,60 @@ function BriefPage({
 }
 
 type BriefDisplayTask = Task & { alsoIn?: string[] };
+
+const daySlotLabels: Record<DaySlot, string> = {
+	morning: "Morning",
+	midday: "Midday",
+	afternoon: "Afternoon",
+	evening: "Evening",
+	night: "Night",
+};
+
+function RoutineBriefSection({
+	tasks,
+	contexts,
+	total,
+	done,
+}: {
+	tasks: Task[];
+	contexts: Context[];
+	total: number;
+	done: number;
+}) {
+	if (!tasks.length) return null;
+
+	return (
+		<section className="cm-brief-section cm-routine-brief">
+			<div className="cm-section-header">
+				<h2>Daily Routine</h2>
+				<span className="cm-section-count">
+					· {done} of {total} done
+				</span>
+				<span className="cm-section-spacer" />
+				<Link to="/routine" className="cm-section-action">
+					Edit routine <ArrowRight className="size-3.5" />
+				</Link>
+			</div>
+			<div className="cm-routine-brief-groups">
+				{(Object.keys(daySlotLabels) as DaySlot[]).map((slot) => {
+					const slotTasks = tasks.filter((task) => task.day_slot === slot);
+					if (!slotTasks.length) return null;
+
+					return (
+						<div key={slot} className="cm-routine-brief-group">
+							<p>{daySlotLabels[slot]}</p>
+							<div className="cm-task-list">
+								{slotTasks.map((task) => (
+									<TaskRow key={task.id} task={task} contexts={contexts} />
+								))}
+							</div>
+						</div>
+					);
+				})}
+			</div>
+		</section>
+	);
+}
 
 function BriefSection({
 	title,
@@ -921,7 +1010,11 @@ function TaskRow({
 	contexts?: Context[];
 }) {
 	const queryClient = useQueryClient();
-	const isDone = done || task.status === "done" || task.status === "cancelled";
+	const isDone =
+		done ||
+		task.status === "done" ||
+		task.status === "cancelled" ||
+		task.status === "expired";
 	const context = contexts?.find(
 		(candidate) => candidate.id === task.context_id,
 	);
@@ -973,15 +1066,19 @@ function TaskRow({
 						{formatMinutes(task.estimate_minutes)}
 					</span>
 				) : null}
-				{task.kind === "recurring" ? (
+				{task.kind === "recurring" || task.kind === "routine" ? (
 					<span className="cm-task-meta">
-						<Repeat2 className="size-3" /> Repeats
+						<Repeat2 className="size-3" />{" "}
+						{task.kind === "routine" ? "Routine" : "Repeats"}
 					</span>
 				) : null}
 				{task.delegated_to_name ? (
 					<span className="cm-task-meta cm-delegated">
 						<ArrowRight className="size-3" /> {task.delegated_to_name}
 					</span>
+				) : null}
+				{task.day_slot ? (
+					<span className="cm-slot-chip">{daySlotLabels[task.day_slot]}</span>
 				) : null}
 				{task.planned_on ? (
 					<span className="cm-date-chip cm-planned-chip">
@@ -1913,8 +2010,34 @@ function TaskDetail({
 							<DateField
 								label="Planned"
 								value={task.planned_on}
-								onChange={(value) => update.mutate({ planned_on: value })}
+								onChange={(value) =>
+									update.mutate({
+										planned_on: value,
+										...(value ? {} : { day_slot: null }),
+									})
+								}
 							/>
+							<Field label="Day slot">
+								<select
+									value={task.day_slot ?? ""}
+									onChange={(event) =>
+										update.mutate({
+											day_slot: event.target.value || null,
+											...(!task.planned_on && event.target.value
+												? { planned_on: todayString() }
+												: {}),
+										})
+									}
+									className="bg-transparent text-sm outline-none"
+								>
+									<option value="">No slot</option>
+									{Object.entries(daySlotLabels).map(([value, label]) => (
+										<option key={value} value={value}>
+											{label}
+										</option>
+									))}
+								</select>
+							</Field>
 							<Field label="Estimate">
 								{task.estimate_minutes ? (
 									<button
