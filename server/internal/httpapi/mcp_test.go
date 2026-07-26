@@ -420,6 +420,7 @@ func TestMCPTaskLifecycle(t *testing.T) {
 		"title":            "Write the quarterly report",
 		"context_id":       contextID,
 		"due_on":           "2026-08-15",
+		"priority":         "high",
 		"estimate_minutes": 90,
 		"source":           "slack",
 	}))
@@ -438,6 +439,9 @@ func TestMCPTaskLifecycle(t *testing.T) {
 	if task["kind"] != "short" {
 		t.Errorf("kind = %v, want short", task["kind"])
 	}
+	if task["priority"] != "high" {
+		t.Errorf("priority = %v, want high", task["priority"])
+	}
 
 	// Update.
 	updated := structured(t, h.callTool(u.Token, "update_task", map[string]any{
@@ -445,6 +449,7 @@ func TestMCPTaskLifecycle(t *testing.T) {
 		"planned_on": "2026-08-14",
 		"details":    "Pull the numbers first",
 		"status":     "in_progress",
+		"priority":   "low",
 	}))
 
 	task, _ = updated["task"].(map[string]any)
@@ -456,17 +461,24 @@ func TestMCPTaskLifecycle(t *testing.T) {
 	if task["status"] != "in_progress" {
 		t.Errorf("status = %v, want in_progress", task["status"])
 	}
+	if task["priority"] != "low" {
+		t.Errorf("priority = %v, want low", task["priority"])
+	}
 
 	// Clearing a date needs the explicit flag, since an omitted field means
 	// "leave alone".
 	cleared := structured(t, h.callTool(u.Token, "update_task", map[string]any{
-		"task_id":      taskID,
-		"clear_due_on": true,
+		"task_id":        taskID,
+		"clear_due_on":   true,
+		"clear_priority": true,
 	}))
 
 	task, _ = cleared["task"].(map[string]any)
 	if task["due_on"] != nil && task["due_on"] != "" {
 		t.Errorf("due_on = %v after clear_due_on, want empty", task["due_on"])
+	}
+	if task["priority"] != nil && task["priority"] != "" {
+		t.Errorf("priority = %v after clear_priority, want empty", task["priority"])
 	}
 
 	// Complete.

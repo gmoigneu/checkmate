@@ -778,6 +778,43 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
+.cm-priority {
+  display: inline-flex;
+  height: 20px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid;
+  border-radius: 999px;
+  font: 500 10px/1 var(--font-sans);
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+
+.cm-priority-urgent {
+  border-color: var(--task-overdue-border);
+  background: var(--task-overdue-bg);
+  color: var(--task-overdue-fg);
+}
+
+.cm-priority-high {
+  border-color: var(--terracotta-300);
+  background: var(--terracotta-050);
+  color: var(--terracotta-700);
+}
+
+.cm-priority-medium {
+  border-color: var(--task-due-today-border);
+  background: var(--task-due-today-bg);
+  color: var(--task-due-today-fg);
+}
+
+.cm-priority-low {
+  border-color: var(--task-planned-border);
+  background: var(--task-planned-bg);
+  color: var(--task-planned-fg);
+}
+
 .cm-delegated {
   color: var(--task-delegated-fg);
 }

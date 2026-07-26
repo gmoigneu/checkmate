@@ -13,7 +13,7 @@ import (
 // Read through the view so kind comes back derived rather than stored.
 const taskColumns = `id, context_id, project_id, parent_id, recurrence_id, occurrence_on,
 	source_key, capture_method, title, details, status, due_on, planned_on,
-	estimate_minutes, delegated_to_id, blocked_by_id, reference_url, reference_label,
+	priority, estimate_minutes, delegated_to_id, blocked_by_id, reference_url, reference_label,
 	kind, completed_at, cancelled_at, created_at, updated_at, deleted_at, rev`
 
 // TaskCreate is the input for creating a task.
@@ -26,6 +26,7 @@ type TaskCreate struct {
 	Title           string
 	Details         *string
 	Status          string
+	Priority        *string
 	DueOn           *string
 	PlannedOn       *string
 	EstimateMinutes *int64
@@ -48,6 +49,7 @@ type TaskUpdate struct {
 	Title           patch.Field[string]
 	Details         patch.Field[string]
 	Status          patch.Field[string]
+	Priority        patch.Field[string]
 	DueOn           patch.Field[string]
 	PlannedOn       patch.Field[string]
 	EstimateMinutes patch.Field[int64]
@@ -61,8 +63,9 @@ type TaskUpdate struct {
 type TaskFilter struct {
 	listOptions
 
-	Status []string
-	Kind   []string
+	Status   []string
+	Kind     []string
+	Priority []string
 
 	// ContextID filters to one context; ContextIsNull selects the inbox, where
 	// quick-captured tasks land before triage.
@@ -94,8 +97,9 @@ type TaskFilter struct {
 
 	Search string
 
-	// Sort names the column to order by and Order the direction. Empty means
-	// newest-created-first, which the primary key already provides.
+	// Sort names the column to order by and Order the direction. Empty uses the
+	// default priority rank, with unprioritized tasks last and newest first
+	// within each rank.
 	//
 	// Validate with ValidSortField and ValidSortOrder before calling; an
 	// unrecognised value falls back to the default rather than erroring here,
@@ -104,7 +108,8 @@ type TaskFilter struct {
 	Order string
 }
 
-// ListTasks returns the caller's tasks, newest first.
+// ListTasks returns the caller's tasks in priority order, newest first within a
+// priority and with unprioritized work last.
 func (s *Store) ListTasks(ctx context.Context, userID string, f TaskFilter) ([]model.Task, string, error) {
 	c := &conditions{}
 	c.add("user_id = ?", userID)
@@ -115,6 +120,7 @@ func (s *Store) ListTasks(ctx context.Context, userID string, f TaskFilter) ([]m
 
 	c.addIn("status", f.Status)
 	c.addIn("kind", f.Kind)
+	c.addIn("priority", f.Priority)
 
 	switch {
 	case f.ContextIsNull:
@@ -336,13 +342,13 @@ func (s *Store) CreateTask(ctx context.Context, userID string, in TaskCreate) (m
 
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO tasks (id, user_id, context_id, project_id, parent_id, source_key,
-				capture_method, title, details, status, due_on, planned_on, estimate_minutes,
+				capture_method, title, details, status, priority, due_on, planned_on, estimate_minutes,
 				delegated_to_id, blocked_by_id, reference_url, reference_label,
 				completed_at, cancelled_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, `+
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, `+
 				completedAt+`, `+cancelledAt+`)`,
 			newID, userID, in.ContextID, in.ProjectID, in.ParentID, in.Source,
-			captureMethod, in.Title, in.Details, status, in.DueOn, in.PlannedOn, in.EstimateMinutes,
+			captureMethod, in.Title, in.Details, status, in.Priority, in.DueOn, in.PlannedOn, in.EstimateMinutes,
 			in.DelegatedToID, in.BlockedByID, in.ReferenceURL, in.ReferenceLabel,
 		)
 		if err != nil {
@@ -370,6 +376,7 @@ func (s *Store) UpdateTask(ctx context.Context, userID, taskID string, in TaskUp
 
 		applyField(b, "title", in.Title)
 		applyField(b, "details", in.Details)
+		applyField(b, "priority", in.Priority)
 		applyField(b, "due_on", in.DueOn)
 		applyField(b, "planned_on", in.PlannedOn)
 		applyField(b, "estimate_minutes", in.EstimateMinutes)
@@ -666,6 +673,7 @@ func taskScanTargets(v *model.Task) []any {
 	return []any{
 		&v.ID, &v.ContextID, &v.ProjectID, &v.ParentID, &v.RecurrenceID, &v.OccurrenceOn,
 		&v.Source, &v.CaptureMethod, &v.Title, &v.Details, &v.Status, &v.DueOn, &v.PlannedOn,
+		&v.Priority,
 		&v.EstimateMinutes, &v.DelegatedToID, &v.BlockedByID, &v.ReferenceURL, &v.ReferenceLabel,
 		&v.Kind, &v.CompletedAt, &v.CancelledAt, &v.CreatedAt, &v.UpdatedAt, &v.DeletedAt, &v.Rev,
 	}
