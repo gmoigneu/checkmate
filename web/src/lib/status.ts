@@ -27,6 +27,10 @@ export const taskStatusEntries = Object.entries(taskStatusOptions) as Array<
 	[TaskStatus, (typeof taskStatusOptions)[TaskStatus]]
 >;
 
+export function taskStatusOption(status: TaskStatus | string) {
+	return taskStatusOptions[status as TaskStatus] ?? taskStatusOptions.todo;
+}
+
 export const taskListStatusFilters: TaskStatus[] = [
 	"blocked",
 	"delegated",

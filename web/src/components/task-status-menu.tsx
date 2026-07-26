@@ -6,7 +6,7 @@ import {
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { taskStatusEntries, taskStatusOptions } from "@/lib/status";
+import { taskStatusEntries, taskStatusOption } from "@/lib/status";
 import type { TaskStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -17,7 +17,7 @@ function StatusBadge({
 	status: TaskStatus;
 	menuTrigger?: boolean;
 }) {
-	const option = taskStatusOptions[status];
+	const option = taskStatusOption(status);
 	const Icon = option.icon;
 
 	return (
@@ -46,7 +46,7 @@ export function TaskStatusMenu({
 	taskTitle?: string;
 	canDelegate: boolean;
 }) {
-	const currentLabel = taskStatusOptions[status].label;
+	const currentLabel = taskStatusOption(status).label;
 
 	return (
 		<DropdownMenu>

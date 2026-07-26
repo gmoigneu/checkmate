@@ -1,1 +1,0 @@
-import{U as e}from"./dist-CaejBv-z.js";import{t}from"./checkmate-app-r0mmIjfo.js";var n=e();function r(){return(0,n.jsx)(t,{})}export{r as component};
