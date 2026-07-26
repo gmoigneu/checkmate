@@ -41,8 +41,9 @@ migrate-down: ## Roll back the last migration
 migrate-status: ## Show migration state
 	go run $(PKG) migrate status
 
-fixtures: ## Recreate the local demo account with representative fixture data
-	go run $(PKG) fixtures load -reset
+fixtures: ## Reset local data and load fixtures for ACCOUNT
+	$(if $(strip $(ACCOUNT)),,$(error ACCOUNT is required; usage: make fixtures ACCOUNT=you@example.com))
+	go run $(PKG) fixtures load "$(ACCOUNT)"
 
 clean: ## Remove build output
 	rm -rf bin

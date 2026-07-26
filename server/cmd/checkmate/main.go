@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -46,7 +47,7 @@ Usage:
   checkmate migrate status             Show migration state
   checkmate user create -email E -name N [-timezone TZ]
   checkmate token create -email E -name N [-scopes "read write"]
-  checkmate fixtures load [-email E] [-name N] [-timezone TZ] [-reset]
+  checkmate fixtures load [-name N] [-timezone TZ] EMAIL
   checkmate recurrence spawn           Materialize due recurring tasks once
   checkmate version                    Print the build version
 
@@ -472,39 +473,47 @@ func fixturesCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args 
 	}
 
 	fs := flag.NewFlagSet("fixtures load", flag.ContinueOnError)
-	email := fs.String("email", "demo@checkmate.local", "fixture account email")
-	name := fs.String("name", "Checkmate Demo", "fixture account display name")
+	name := fs.String("name", "", "fixture account display name (default: email local part)")
 	timezone := fs.String("timezone", "Europe/Paris", "IANA timezone for relative fixture dates")
 	tokenName := fs.String("token", "Local fixtures", "API token name; empty disables token creation")
-	reset := fs.Bool("reset", false, "delete and recreate the fixture account if it already exists")
 
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
 
-	db, err := open(ctx, cfg, log, cfg.AutoMigrate)
+	if fs.NArg() != 1 {
+		return errors.New("fixtures load requires exactly one account email")
+	}
+
+	email := strings.TrimSpace(fs.Arg(0))
+	displayName := strings.TrimSpace(*name)
+	if displayName == "" {
+		displayName, _, _ = strings.Cut(email, "@")
+	}
+
+	if _, err := time.LoadLocation(*timezone); err != nil {
+		return fmt.Errorf("load fixture timezone %q: %w", *timezone, err)
+	}
+
+	if err := account.ValidateUserInput(email, displayName, *timezone); err != nil {
+		return err
+	}
+
+	if !cfg.Development() {
+		return errors.New("fixtures can only be loaded in the development environment")
+	}
+
+	db, err := open(ctx, cfg, log, true)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	if *reset {
-		var userID string
-		err := db.QueryRowContext(ctx, `SELECT id FROM users WHERE email = ?`, *email).Scan(&userID)
-		switch {
-		case err == nil:
-			if _, err := db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID); err != nil {
-				return fmt.Errorf("delete existing fixture account: %w", err)
-			}
-		case !errors.Is(err, sql.ErrNoRows):
-			return fmt.Errorf("find existing fixture account: %w", err)
-		}
+	if err := fixtures.Reset(ctx, db); err != nil {
+		return err
 	}
 
-	user, err := account.CreateUser(ctx, db, *email, *name, *timezone)
-	if errors.Is(err, account.ErrEmailTaken) {
-		return fmt.Errorf("fixture account %s already exists; pass -reset to recreate it", *email)
-	}
+	user, err := account.CreateUser(ctx, db, email, displayName, *timezone)
 	if err != nil {
 		return err
 	}

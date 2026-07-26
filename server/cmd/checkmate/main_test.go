@@ -6,14 +6,14 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
-	"strings"
 	"testing"
 
+	"github.com/nls/checkmate/server/internal/account"
 	"github.com/nls/checkmate/server/internal/config"
 	"github.com/nls/checkmate/server/internal/database"
 )
 
-func TestFixturesCmdLoadsAndSafelyResetsDemoAccount(t *testing.T) {
+func TestFixturesCmdResetsAllDataAndProvisionsRequestedAccount(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -24,7 +24,7 @@ func TestFixturesCmdLoadsAndSafelyResetsDemoAccount(t *testing.T) {
 		AutoMigrate:  true,
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	args := []string{"load", "-email=local@example.com", "-token="}
+	args := []string{"load", "-token=", "local@example.com"}
 
 	if err := fixturesCmd(ctx, cfg, log, args); err != nil {
 		t.Fatal(err)
@@ -38,14 +38,44 @@ func TestFixturesCmdLoadsAndSafelyResetsDemoAccount(t *testing.T) {
 
 	assertFixtureCounts(t, ctx, db, 1, 50)
 
-	err = fixturesCmd(ctx, cfg, log, args)
-	if err == nil || !strings.Contains(err.Error(), "pass -reset") {
-		t.Fatalf("second load error = %v, want reset guidance", err)
+	var firstUserID string
+	if err := db.QueryRowContext(ctx,
+		`SELECT id FROM users WHERE email = 'local@example.com'`).Scan(&firstUserID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := account.CreateUser(ctx, db, "other@example.com", "Other User", "UTC"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fixturesCmd(ctx, cfg, log, args); err != nil {
+		t.Fatal(err)
 	}
 	assertFixtureCounts(t, ctx, db, 1, 50)
 
-	if err := fixturesCmd(ctx, cfg, log, append(args, "-reset")); err != nil {
+	var secondUserID string
+	if err := db.QueryRowContext(ctx,
+		`SELECT id FROM users WHERE email = 'local@example.com'`).Scan(&secondUserID); err != nil {
 		t.Fatal(err)
+	}
+	if secondUserID == firstUserID {
+		t.Fatal("fixture reload kept the old account instead of reprovisioning it")
+	}
+
+	if err := fixturesCmd(ctx, cfg, log, []string{"load", "-token="}); err == nil {
+		t.Fatal("fixture load without an account email succeeded")
+	}
+	assertFixtureCounts(t, ctx, db, 1, 50)
+
+	if err := fixturesCmd(ctx, cfg, log, []string{"load", "-token=", "not-an-email"}); err == nil {
+		t.Fatal("fixture load with an invalid account email succeeded")
+	}
+	assertFixtureCounts(t, ctx, db, 1, 50)
+
+	production := cfg
+	production.Env = "production"
+	if err := fixturesCmd(ctx, production, log, args); err == nil {
+		t.Fatal("fixture load in production succeeded")
 	}
 	assertFixtureCounts(t, ctx, db, 1, 50)
 }
@@ -60,7 +90,7 @@ func assertFixtureCounts(
 
 	var users, tasks int
 	if err := db.QueryRowContext(ctx,
-		`SELECT count(*) FROM users WHERE email = 'local@example.com'`).Scan(&users); err != nil {
+		`SELECT count(*) FROM users`).Scan(&users); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRowContext(ctx, `

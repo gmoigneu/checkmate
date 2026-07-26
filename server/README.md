@@ -17,26 +17,29 @@ is stored, so copy it there and then.
 
 ### Local fixtures
 
-Create a local demo account with representative data:
+Reset the local database and create representative data for the account you use
+to sign in:
 
 ```sh
-make fixtures
+make fixtures ACCOUNT=g@moigneu.com
 ```
 
-This recreates only `demo@checkmate.local`, prints a new API token, and loads
-contexts, projects in every lifecycle state, people, active/paused/finished
-recurrences, every task kind/status/priority/source/capture method, and completed
-or cancelled history spread across the previous three calendar months. Dates are
-relative to the day the command runs, so overdue, today, and upcoming views stay
-useful.
-
-To keep an existing fixture account safe by default, the CLI itself requires an
-explicit reset:
+The command is development-only and destructive: it clears all local users,
+sessions, tokens, OAuth clients, and task data before provisioning the supplied
+account. It then prints a new API token and loads contexts, projects in every
+lifecycle state, people, active/paused/finished recurrences, every task
+kind/status/priority/source/capture method, and completed or cancelled history
+spread across the previous three calendar months. Dates are relative to the day
+the command runs, so overdue, today, and upcoming views stay useful.
 
 ```sh
-go run ./cmd/checkmate fixtures load
-go run ./cmd/checkmate fixtures load -reset -email demo@checkmate.local
+go run ./cmd/checkmate fixtures load g@moigneu.com
+go run ./cmd/checkmate fixtures load -name "G/" -timezone Europe/Paris g@moigneu.com
 ```
+
+When Google sign-in is configured, use the same email address here as your
+Google account. The first sign-in links that verified identity to the provisioned
+account and opens the seeded data.
 
 ## Layout
 

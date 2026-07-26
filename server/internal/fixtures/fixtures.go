@@ -110,6 +110,35 @@ type taskSpec struct {
 	DeletedAt       *string
 }
 
+// Reset removes all mutable local data while retaining the migrated schema and
+// static source lookup. It is intentionally database-wide: a fixture load must
+// start from a known state rather than coexist with data from an earlier run.
+func Reset(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("fixtures: begin reset: %w", err)
+	}
+	defer tx.Rollback()
+
+	statements := []string{
+		`DELETE FROM oidc_flows`,
+		`DELETE FROM oauth_clients`,
+		`DELETE FROM users`,
+		`UPDATE change_seq SET value = 0`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("fixtures: reset local data: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("fixtures: commit reset: %w", err)
+	}
+
+	return nil
+}
+
 // Load inserts a broad, internally coherent dataset for userID.
 //
 // The caller is expected to provide an otherwise empty fixture account. All

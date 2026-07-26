@@ -144,9 +144,30 @@ func TestLoadCreatesRepresentativeDataset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
 	if rows.Next() {
 		t.Fatal("fixture data violates a foreign key")
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Reset(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	var users, sources int
+	var rev int64
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&users); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sources`).Scan(&sources); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT value FROM change_seq WHERE id = 1`).Scan(&rev); err != nil {
+		t.Fatal(err)
+	}
+	if users != 0 || sources != 6 || rev != 0 {
+		t.Fatalf("after reset users=%d sources=%d rev=%d, want 0, 6, 0", users, sources, rev)
 	}
 }
 
