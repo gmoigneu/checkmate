@@ -166,12 +166,18 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				event.preventDefault();
 				setCaptureOpen(true);
 			}
+			const target = event.target;
+			const isTypingTarget =
+				target instanceof HTMLElement &&
+				(target.matches("input, textarea, select, [contenteditable='true']") ||
+					Boolean(target.closest('[role="menu"]')));
 			if (
 				event.key.toLowerCase() === "c" &&
-				!(
-					event.target instanceof HTMLInputElement ||
-					event.target instanceof HTMLTextAreaElement
-				)
+				!event.metaKey &&
+				!event.ctrlKey &&
+				!event.altKey &&
+				!event.shiftKey &&
+				!isTypingTarget
 			)
 				setCaptureOpen(true);
 		};
@@ -189,7 +195,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 	}, [location.pathname, needsAuthentication]);
 	if (needsAuthentication) return null;
 
-	const isLoading = me.isLoading || contexts.isLoading || brief.isLoading;
+	const isLoading = me.isLoading || contexts.isLoading;
 	const invalidate = () =>
 		queryClient.invalidateQueries({ queryKey: ["brief"] });
 	const appContexts = contexts.data?.data ?? [];
@@ -199,9 +205,9 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 	const content = () => {
 		const loadedBrief = brief.data;
 		if (isLoading) return <LoadingPage />;
-		if (brief.error) return <ErrorState onRetry={invalidate} />;
-		if (!loadedBrief) return <LoadingPage />;
-		if (page === "brief")
+		if (page === "brief") {
+			if (brief.error) return <ErrorState onRetry={invalidate} />;
+			if (!loadedBrief) return <LoadingPage />;
 			return (
 				<BriefPage
 					brief={loadedBrief}
@@ -209,17 +215,17 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 					onOpenCapture={() => setCaptureOpen(true)}
 				/>
 			);
+		}
 		if (page === "inbox")
 			return <InboxPage contexts={appContexts} people={appPeople} />;
-		if (page === "waiting")
-			return <WaitingPage brief={loadedBrief} contexts={appContexts} />;
+		if (page === "waiting") return <WaitingPage contexts={appContexts} />;
 		if (page === "routine")
 			return (
 				<RoutinePage
 					contexts={appContexts}
 					projects={appProjects}
 					timezone={me.data?.timezone ?? "UTC"}
-					today={loadedBrief.date}
+					today={todayString(me.data?.timezone)}
 				/>
 			);
 		if (page === "repeating")
@@ -1572,6 +1578,8 @@ function TaskListPage({
 			</p>
 			{tasks.isLoading ? (
 				<LoadingPage />
+			) : tasks.error ? (
+				<TaskQueryError onRetry={() => tasks.refetch()} />
 			) : tasks.data?.data.length ? (
 				<div className="overflow-hidden rounded-2xl border border-border bg-card">
 					{tasks.data.data.map((task) => (
@@ -1588,20 +1596,14 @@ function TaskListPage({
 	);
 }
 
-function WaitingPage({
-	brief,
-	contexts,
-}: {
-	brief: Brief;
-	contexts: Context[];
-}) {
+function WaitingPage({ contexts }: { contexts: Context[] }) {
 	const [contextId, setContextId] = useState<string>();
 	const date = todayString();
 	const query = useQuery({
 		queryKey: briefQueryKey(date, contextId),
 		queryFn: () => api.brief(date, contextId),
 	});
-	const data = query.data ?? brief;
+	const data = query.data;
 	return (
 		<section>
 			<div className="mb-8 flex flex-wrap items-end justify-between gap-4">
@@ -1618,7 +1620,9 @@ function WaitingPage({
 					label="Filter waiting on by context"
 				/>
 			</div>
-			{!query.data ? (
+			{query.error ? (
+				<ErrorState onRetry={() => query.refetch()} />
+			) : !data ? (
 				<LoadingPage />
 			) : data.waiting_on.length ? (
 				<WaitingSection groups={data.waiting_on} contexts={contexts} />
@@ -1730,7 +1734,11 @@ function ContextPage({
 				</p>
 			)}
 			<h2 className="mb-3 font-display text-2xl">Open tasks</h2>
-			{tasks.data?.data.length ? (
+			{tasks.isLoading ? (
+				<LoadingPage />
+			) : tasks.error ? (
+				<TaskQueryError onRetry={() => tasks.refetch()} />
+			) : tasks.data?.data.length ? (
 				<div className="overflow-hidden rounded-2xl border border-border bg-card">
 					{tasks.data.data.map((task) => (
 						<TaskRow key={task.id} task={task} />
@@ -1805,7 +1813,11 @@ function ProjectPage({
 					Add task
 				</Button>
 			</div>
-			{tasks.data?.data.length ? (
+			{tasks.isLoading ? (
+				<LoadingPage />
+			) : tasks.error ? (
+				<TaskQueryError onRetry={() => tasks.refetch()} />
+			) : tasks.data?.data.length ? (
 				<div className="overflow-hidden rounded-2xl border border-border bg-card">
 					{tasks.data.data.map((task) => (
 						<TaskRow key={task.id} task={task} />
@@ -2218,14 +2230,28 @@ function LoadingPage() {
 		</div>
 	);
 }
-function ErrorState({ onRetry }: { onRetry: () => void }) {
+function TaskQueryError({ onRetry }: { onRetry: () => void }) {
+	return (
+		<ErrorState
+			onRetry={onRetry}
+			title="Tasks are unavailable"
+			description="Check your connection and try loading this task list again."
+		/>
+	);
+}
+function ErrorState({
+	onRetry,
+	title = "The brief is unavailable",
+	description = "Your last synced data remains readable when it is available. Try again when the server is reachable.",
+}: {
+	onRetry: () => void;
+	title?: string;
+	description?: string;
+}) {
 	return (
 		<div className="rounded-2xl border border-[var(--overdue)]/30 bg-[var(--overdue-bg)] p-6">
-			<h2 className="font-display text-2xl">The brief is unavailable</h2>
-			<p className="mt-2 text-sm text-muted-foreground">
-				Your last synced data remains readable when it is available. Try again
-				when the server is reachable.
-			</p>
+			<h2 className="font-display text-2xl">{title}</h2>
+			<p className="mt-2 text-sm text-muted-foreground">{description}</p>
 			<Button className="mt-4" variant="outline" onClick={onRetry}>
 				<RefreshCw className="mr-2 size-4" />
 				Try again

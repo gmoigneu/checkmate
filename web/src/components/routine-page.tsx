@@ -43,12 +43,14 @@ const weekdays = [
 ];
 
 const allDays = weekdays.map((day) => day.value);
+const allDaySet = new Set(allDays);
 
 function rruleForDays(days: string[]) {
+	const selectedDays = new Set(days);
 	return days.length === allDays.length
 		? "FREQ=DAILY"
 		: `FREQ=WEEKLY;BYDAY=${weekdays
-				.filter((day) => days.includes(day.value))
+				.filter((day) => selectedDays.has(day.value))
 				.map((day) => day.value)
 				.join(",")}`;
 }
@@ -56,18 +58,17 @@ function rruleForDays(days: string[]) {
 function daysForRRule(rrule: string) {
 	if (/(^|;)FREQ=DAILY(;|$)/i.test(rrule)) return allDays;
 	const match = rrule.match(/(?:^|;)BYDAY=([^;]+)/i);
-	return (
-		match?.[1]?.split(",").filter((day) => allDays.includes(day)) ?? allDays
-	);
+	return match?.[1]?.split(",").filter((day) => allDaySet.has(day)) ?? allDays;
 }
 
 function daySummary(rrule: string) {
 	const days = daysForRRule(rrule);
 	if (days.length === 7) return "Every day";
 	if (days.join(",") === "MO,TU,WE,TH,FR") return "Weekdays";
+	const selectedDays = new Set(days);
 
 	return weekdays
-		.filter((day) => days.includes(day.value))
+		.filter((day) => selectedDays.has(day.value))
 		.map((day) => day.value.slice(0, 2))
 		.join(" · ");
 }
@@ -125,12 +126,14 @@ export function RoutinePage({
 				day_slot: slot,
 			});
 
-			const changed = reordered
-				.map((item, index) => ({ item, order: (index + 1) * 10 }))
-				.filter(
-					({ item, order }) =>
-						item.slot_order !== order || item.id === draggedID,
-				);
+			const changed = reordered.reduce<
+				Array<{ item: Recurrence; order: number }>
+			>((result, item, index) => {
+				const order = (index + 1) * 10;
+				if (item.slot_order !== order || item.id === draggedID)
+					result.push({ item, order });
+				return result;
+			}, []);
 
 			await Promise.all(
 				changed.map(({ item, order }) =>
@@ -171,20 +174,22 @@ export function RoutinePage({
 				contexts[0].id;
 			const orders = new Map<DaySlot, number>();
 
-			for (const item of exampleRoutineSeed) {
-				const order = (orders.get(item.slot) ?? 0) + 10;
-				orders.set(item.slot, order);
-				await api.createRoutine({
-					title: item.title,
-					context_id: contextFor(item.context),
-					day_slot: item.slot,
-					slot_order: order,
-					rrule: rruleForDays(item.days),
-					timezone,
-					starts_on: today,
-					lead_days: 0,
-				});
-			}
+			await Promise.all(
+				exampleRoutineSeed.map((item) => {
+					const order = (orders.get(item.slot) ?? 0) + 10;
+					orders.set(item.slot, order);
+					return api.createRoutine({
+						title: item.title,
+						context_id: contextFor(item.context),
+						day_slot: item.slot,
+						slot_order: order,
+						rrule: rruleForDays(item.days),
+						timezone,
+						starts_on: today,
+						lead_days: 0,
+					});
+				}),
+			);
 		},
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ["routines"] });
@@ -409,13 +414,15 @@ function RoutineEditor({
 	const [title, setTitle] = useState(item?.title ?? "");
 	const [details, setDetails] = useState(item?.details ?? "");
 	const [slot, setSlot] = useState<DaySlot>(item?.day_slot ?? initialSlot);
-	const [days, setDays] = useState(daysForRRule(item?.rrule ?? "FREQ=DAILY"));
+	const [days, setDays] = useState(() =>
+		daysForRRule(item?.rrule ?? "FREQ=DAILY"),
+	);
 	const [contextID, setContextID] = useState(
 		item?.context_id ?? contexts[0]?.id ?? "",
 	);
 	const [projectID, setProjectID] = useState(item?.project_id ?? "");
 	const [estimate, setEstimate] = useState(
-		item?.estimate_minutes?.toString() ?? "",
+		() => item?.estimate_minutes?.toString() ?? "",
 	);
 	const [active, setActive] = useState(item?.active ?? true);
 
@@ -530,14 +537,15 @@ function RoutineEditor({
 										type="button"
 										key={day.value}
 										onClick={() =>
-											setDays((current) =>
-												selected
-													? current.filter((value) => value !== day.value)
-													: allDays.filter(
-															(value) =>
-																current.includes(value) || value === day.value,
-														),
-											)
+											setDays((current) => {
+												if (selected)
+													return current.filter((value) => value !== day.value);
+												const selectedDays = new Set(current);
+												selectedDays.add(day.value);
+												return allDays.filter((value) =>
+													selectedDays.has(value),
+												);
+											})
 										}
 										className={cn(
 											"rounded-lg border py-2 text-xs font-medium",
