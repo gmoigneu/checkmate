@@ -6,7 +6,11 @@ import {
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { taskStatusEntries, taskStatusOption } from "@/lib/status";
+import {
+	taskStatusEntries,
+	taskStatusOption,
+	taskStatusValue,
+} from "@/lib/status";
 import type { TaskStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -17,11 +21,12 @@ function StatusBadge({
 	status: TaskStatus;
 	menuTrigger?: boolean;
 }) {
-	const option = taskStatusOption(status);
+	const normalizedStatus = taskStatusValue(status);
+	const option = taskStatusOption(normalizedStatus);
 	const Icon = option.icon;
 
 	return (
-		<span className={cn("cm-status-badge", `cm-status-${status}`)}>
+		<span className={cn("cm-status-badge", `cm-status-${normalizedStatus}`)}>
 			<Icon className="size-3" />
 			<span>{option.label}</span>
 			{menuTrigger ? (
@@ -46,7 +51,8 @@ export function TaskStatusMenu({
 	taskTitle?: string;
 	canDelegate: boolean;
 }) {
-	const currentLabel = taskStatusOption(status).label;
+	const normalizedStatus = taskStatusValue(status);
+	const currentLabel = taskStatusOption(normalizedStatus).label;
 
 	return (
 		<DropdownMenu>
@@ -62,9 +68,9 @@ export function TaskStatusMenu({
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="cm-status-menu w-48">
 				<DropdownMenuRadioGroup
-					value={status}
+					value={normalizedStatus}
 					onValueChange={(value) => {
-						if (value !== status) onStatusChange(value as TaskStatus);
+						if (value !== normalizedStatus) onStatusChange(value as TaskStatus);
 					}}
 				>
 					{taskStatusEntries.map(([value]) => (

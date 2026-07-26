@@ -27,8 +27,14 @@ export const taskStatusEntries = Object.entries(taskStatusOptions) as Array<
 	[TaskStatus, (typeof taskStatusOptions)[TaskStatus]]
 >;
 
+export function taskStatusValue(status: TaskStatus | string): TaskStatus {
+	return Object.hasOwn(taskStatusOptions, status)
+		? (status as TaskStatus)
+		: "todo";
+}
+
 export function taskStatusOption(status: TaskStatus | string) {
-	return taskStatusOptions[status as TaskStatus] ?? taskStatusOptions.todo;
+	return taskStatusOptions[taskStatusValue(status)];
 }
 
 export const taskListStatusFilters: TaskStatus[] = [
