@@ -43,7 +43,7 @@ import {
 	formatMinutes,
 	todayString,
 } from "@/lib/format";
-import { taskListStatusFilters, taskStatusLabels } from "@/lib/status";
+import { taskListStatusFilters, taskStatusOptions } from "@/lib/status";
 import type {
 	Brief,
 	Context,
@@ -1450,7 +1450,7 @@ function TaskListPage({
 						<option value="todo,in_progress">Open work</option>
 						{taskListStatusFilters.map((status) => (
 							<option key={status} value={status}>
-								{taskStatusLabels[status]}
+								{taskStatusOptions[status].label}
 							</option>
 						))}
 					</select>

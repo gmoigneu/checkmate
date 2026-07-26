@@ -1,13 +1,4 @@
-import {
-	ArrowRight,
-	Check,
-	ChevronDown,
-	CircleDotDashed,
-	Inbox,
-	LoaderCircle,
-	OctagonX,
-	X,
-} from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -15,22 +6,9 @@ import {
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { taskStatusLabels } from "@/lib/status";
+import { taskStatusEntries, taskStatusOptions } from "@/lib/status";
 import type { TaskStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const statusOptions: Array<{
-	value: TaskStatus;
-	icon: typeof Inbox;
-}> = [
-	{ value: "inbox", icon: Inbox },
-	{ value: "todo", icon: CircleDotDashed },
-	{ value: "in_progress", icon: LoaderCircle },
-	{ value: "blocked", icon: OctagonX },
-	{ value: "delegated", icon: ArrowRight },
-	{ value: "done", icon: Check },
-	{ value: "cancelled", icon: X },
-];
 
 function StatusBadge({
 	status,
@@ -39,15 +17,13 @@ function StatusBadge({
 	status: TaskStatus;
 	menuTrigger?: boolean;
 }) {
-	const option =
-		statusOptions.find((candidate) => candidate.value === status) ??
-		statusOptions[1];
+	const option = taskStatusOptions[status];
 	const Icon = option.icon;
 
 	return (
 		<span className={cn("cm-status-badge", `cm-status-${status}`)}>
 			<Icon className="size-3" />
-			<span>{taskStatusLabels[status]}</span>
+			<span>{option.label}</span>
 			{menuTrigger ? (
 				<ChevronDown className="cm-status-chevron size-3" />
 			) : null}
@@ -70,7 +46,7 @@ export function TaskStatusMenu({
 	taskTitle?: string;
 	canDelegate: boolean;
 }) {
-	const currentLabel = taskStatusLabels[status];
+	const currentLabel = taskStatusOptions[status].label;
 
 	return (
 		<DropdownMenu>
@@ -91,19 +67,19 @@ export function TaskStatusMenu({
 						if (value !== status) onStatusChange(value as TaskStatus);
 					}}
 				>
-					{statusOptions.map((option) => (
+					{taskStatusEntries.map(([value]) => (
 						<DropdownMenuRadioItem
-							key={option.value}
-							value={option.value}
-							disabled={option.value === "delegated" && !canDelegate}
+							key={value}
+							value={value}
+							disabled={value === "delegated" && !canDelegate}
 							title={
-								option.value === "delegated" && !canDelegate
+								value === "delegated" && !canDelegate
 									? "Assign a delegate in the task details first"
 									: undefined
 							}
 							className="py-2"
 						>
-							<StatusBadge status={option.value} />
+							<StatusBadge status={value} />
 						</DropdownMenuRadioItem>
 					))}
 				</DropdownMenuRadioGroup>
