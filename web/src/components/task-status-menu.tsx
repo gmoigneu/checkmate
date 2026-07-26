@@ -6,7 +6,7 @@ import {
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { taskStatusEntries, taskStatusOption } from "@/lib/status";
+import { taskStatusOption, writableTaskStatusEntries } from "@/lib/status";
 import type { TaskStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +48,17 @@ export function TaskStatusMenu({
 }) {
 	const currentLabel = taskStatusOption(status).label;
 
+	if (status === "expired") {
+		return (
+			<span
+				className={cn("cm-status-trigger cursor-default", className)}
+				title={`${taskTitle ?? "Task"} expired`}
+			>
+				<StatusBadge status={status} />
+			</span>
+		);
+	}
+
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -67,7 +78,7 @@ export function TaskStatusMenu({
 						if (value !== status) onStatusChange(value as TaskStatus);
 					}}
 				>
-					{taskStatusEntries.map(([value]) => (
+					{writableTaskStatusEntries.map(([value]) => (
 						<DropdownMenuRadioItem
 							key={value}
 							value={value}

@@ -31,6 +31,10 @@ type BriefTotals struct {
 	WaitingOn      int `json:"waiting_on"`
 	InProgress     int `json:"in_progress"`
 	CompletedToday int `json:"completed_today"`
+	Routine        int `json:"routine"`
+	RoutineOpen    int `json:"routine_open"`
+	RoutineDone    int `json:"routine_done"`
+	RoutineExpired int `json:"routine_expired"`
 
 	// CancelledToday counts what was closed by deciding not to do it. Reported
 	// separately from CompletedToday because deciding against something is not an
@@ -58,6 +62,7 @@ type Brief struct {
 	Inbox      []model.Task `json:"inbox"`
 	Blocked    []model.Task `json:"blocked"`
 	WaitingOn  []WaitingOn  `json:"waiting_on"`
+	Routine    []model.Task `json:"routine"`
 
 	// CompletedToday gives the day a sense of progress rather than only debt.
 	CompletedToday []model.Task `json:"completed_today"`
@@ -106,7 +111,7 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 	// thing that has been late longest is usually the thing to deal with.
 	overdue, err := s.briefTasks(ctx,
 		`user_id = ? AND deleted_at IS NULL AND due_on IS NOT NULL AND due_on < ?
-		   AND status IN `+openIn+contextClause,
+		   AND kind <> 'routine' AND status IN `+openIn+contextClause,
 		append(append([]any{userID, f.Date}, openArgs...), contextArgs...),
 		"due_on ASC",
 	)
@@ -115,7 +120,8 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 	}
 
 	dueToday, err := s.briefTasks(ctx,
-		`user_id = ? AND deleted_at IS NULL AND due_on = ? AND status IN `+openIn+contextClause,
+		`user_id = ? AND deleted_at IS NULL AND due_on = ? AND kind <> 'routine'
+		   AND status IN `+openIn+contextClause,
 		append(append([]any{userID, f.Date}, openArgs...), contextArgs...),
 		"coalesce(estimate_minutes, 0) ASC",
 	)
@@ -124,7 +130,8 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 	}
 
 	planned, err := s.briefTasks(ctx,
-		`user_id = ? AND deleted_at IS NULL AND planned_on = ? AND status IN `+openIn+contextClause,
+		`user_id = ? AND deleted_at IS NULL AND planned_on = ? AND kind <> 'routine'
+		   AND status IN `+openIn+contextClause,
 		append(append([]any{userID, f.Date}, openArgs...), contextArgs...),
 		"coalesce(due_on, '9999-12-31') ASC",
 	)
@@ -133,7 +140,8 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 	}
 
 	inProgress, err := s.briefTasks(ctx,
-		`user_id = ? AND deleted_at IS NULL AND status = 'in_progress'`+contextClause,
+		`user_id = ? AND deleted_at IS NULL AND kind <> 'routine'
+		   AND status = 'in_progress'`+contextClause,
 		append([]any{userID}, contextArgs...),
 		"updated_at DESC",
 	)
@@ -153,7 +161,8 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 	}
 
 	blocked, err := s.briefTasks(ctx,
-		`user_id = ? AND deleted_at IS NULL AND status = 'blocked'`+contextClause,
+		`user_id = ? AND deleted_at IS NULL AND kind <> 'routine'
+		   AND status = 'blocked'`+contextClause,
 		append([]any{userID}, contextArgs...),
 		"updated_at ASC",
 	)
@@ -163,7 +172,7 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 
 	delegated, err := s.briefTasks(ctx,
 		`user_id = ? AND deleted_at IS NULL AND status = 'delegated'
-		   AND delegated_to_id IS NOT NULL`+contextClause,
+		   AND kind <> 'routine' AND delegated_to_id IS NOT NULL`+contextClause,
 		append([]any{userID}, contextArgs...),
 		"due_on ASC",
 	)
@@ -174,7 +183,7 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 	// completed_at is a timestamp, so "today" is a prefix match on the date part.
 	completed, err := s.briefTasks(ctx,
 		`user_id = ? AND deleted_at IS NULL AND status = 'done'
-		   AND completed_at LIKE ? || '%'`+contextClause,
+		   AND kind <> 'routine' AND completed_at LIKE ? || '%'`+contextClause,
 		append([]any{userID, f.Date}, contextArgs...),
 		"completed_at DESC",
 	)
@@ -184,9 +193,27 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 
 	cancelled, err := s.briefTasks(ctx,
 		`user_id = ? AND deleted_at IS NULL AND status = 'cancelled'
+		   AND kind <> 'routine' AND expired_at IS NULL
 		   AND cancelled_at LIKE ? || '%'`+contextClause,
 		append([]any{userID, f.Date}, contextArgs...),
 		"cancelled_at DESC",
+	)
+	if err != nil {
+		return Brief{}, err
+	}
+
+	routine, err := s.briefTasks(ctx,
+		`user_id = ? AND deleted_at IS NULL AND kind = 'routine'
+		   AND occurrence_on = ?`+contextClause,
+		append([]any{userID, f.Date}, contextArgs...),
+		`CASE day_slot
+			WHEN 'morning' THEN 0
+			WHEN 'midday' THEN 1
+			WHEN 'afternoon' THEN 2
+			WHEN 'evening' THEN 3
+			WHEN 'night' THEN 4
+			ELSE 5
+		END ASC, slot_order ASC`,
 	)
 	if err != nil {
 		return Brief{}, err
@@ -207,6 +234,10 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 		InProgress:     inProgress.Total,
 		CompletedToday: completed.Total,
 		CancelledToday: cancelled.Total,
+		Routine:        routine.Total,
+		RoutineOpen:    routine.Open,
+		RoutineDone:    routine.Done,
+		RoutineExpired: routine.Expired,
 
 		// Summed over the whole bucket by SQL, so an over-committed day still
 		// reads correctly when the list itself was capped.
@@ -222,6 +253,7 @@ func (s *Store) Brief(ctx context.Context, userID string, f BriefFilter) (Brief,
 	brief.Blocked = blocked.Tasks
 	brief.CompletedToday = completed.Tasks
 	brief.CancelledToday = cancelled.Tasks
+	brief.Routine = routine.Tasks
 	brief.WaitingOn = waiting
 
 	return brief, nil
@@ -320,6 +352,13 @@ type bucket struct {
 	// the returned page.
 	EstimateMinutes int
 	WithoutEstimate int
+
+	// Outcome counts are useful for the Routine bucket. They are calculated for
+	// every bucket to keep the aggregate query single-purpose and, like Total,
+	// remain exact when the displayed list is capped.
+	Open    int
+	Done    int
+	Expired int
 }
 
 // briefTasks runs one bucket: an aggregate for honest totals, then the rows to
@@ -336,10 +375,18 @@ func (s *Store) briefTasks(ctx context.Context, where string, args []any, order 
 	err := s.db.QueryRowContext(ctx,
 		`SELECT count(*),
 		        coalesce(sum(coalesce(estimate_minutes, 0)), 0),
-		        coalesce(sum(CASE WHEN estimate_minutes IS NULL THEN 1 ELSE 0 END), 0)
+		        coalesce(sum(CASE WHEN estimate_minutes IS NULL THEN 1 ELSE 0 END), 0),
+		        coalesce(sum(CASE
+		          WHEN expired_at IS NULL AND status IN ('todo', 'in_progress', 'blocked', 'delegated')
+		          THEN 1 ELSE 0 END), 0),
+		        coalesce(sum(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0),
+		        coalesce(sum(CASE WHEN expired_at IS NOT NULL THEN 1 ELSE 0 END), 0)
 		 FROM tasks_with_kind WHERE `+where,
 		args...,
-	).Scan(&b.Total, &b.EstimateMinutes, &b.WithoutEstimate)
+	).Scan(
+		&b.Total, &b.EstimateMinutes, &b.WithoutEstimate,
+		&b.Open, &b.Done, &b.Expired,
+	)
 	if err != nil {
 		return bucket{}, fmt.Errorf("store: brief totals: %w", err)
 	}

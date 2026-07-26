@@ -6,6 +6,7 @@ import {
 	LoaderCircle,
 	type LucideIcon,
 	OctagonX,
+	TimerOff,
 	X,
 } from "lucide-react";
 import type { TaskStatus } from "./types";
@@ -21,11 +22,16 @@ export const taskStatusOptions: Record<
 	delegated: { label: "Waiting on", icon: ArrowRight },
 	done: { label: "Done", icon: Check },
 	cancelled: { label: "Cancelled", icon: X },
+	expired: { label: "Expired", icon: TimerOff },
 };
 
 export const taskStatusEntries = Object.entries(taskStatusOptions) as Array<
 	[TaskStatus, (typeof taskStatusOptions)[TaskStatus]]
 >;
+
+export const writableTaskStatusEntries = taskStatusEntries.filter(
+	([status]) => status !== "expired",
+);
 
 export function taskStatusOption(status: TaskStatus | string) {
 	return taskStatusOptions[status as TaskStatus] ?? taskStatusOptions.todo;
@@ -36,4 +42,5 @@ export const taskListStatusFilters: TaskStatus[] = [
 	"delegated",
 	"done",
 	"cancelled",
+	"expired",
 ];

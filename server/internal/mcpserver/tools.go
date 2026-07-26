@@ -56,9 +56,9 @@ type noInput struct{}
 type taskView struct {
 	ID              string `json:"id" jsonschema:"the task's id, used to update or complete it"`
 	Title           string `json:"title"`
-	Status          string `json:"status" jsonschema:"one of inbox, todo, in_progress, blocked, delegated, done, cancelled"`
+	Status          string `json:"status" jsonschema:"one of inbox, todo, in_progress, blocked, delegated, done, cancelled or expired"`
 	Priority        string `json:"priority,omitempty" jsonschema:"urgent, high, medium or low"`
-	Kind            string `json:"kind" jsonschema:"short, long, recurring, delegated or blocked"`
+	Kind            string `json:"kind" jsonschema:"short, long, recurring, routine, delegated or blocked"`
 	Details         string `json:"details,omitempty"`
 	ContextID       string `json:"context_id,omitempty"`
 	ContextName     string `json:"context_name,omitempty"`
@@ -66,6 +66,8 @@ type taskView struct {
 	ProjectName     string `json:"project_name,omitempty"`
 	DueOn           string `json:"due_on,omitempty" jsonschema:"YYYY-MM-DD, when the task is due"`
 	PlannedOn       string `json:"planned_on,omitempty" jsonschema:"YYYY-MM-DD, the day the user intends to work on it"`
+	DaySlot         string `json:"day_slot,omitempty" jsonschema:"morning, midday, afternoon, evening or night; requires planned_on"`
+	SlotOrder       int64  `json:"slot_order,omitempty" jsonschema:"manual position inside the day slot"`
 	EstimateMinutes int64  `json:"estimate_minutes,omitempty"`
 	DelegatedTo     string `json:"delegated_to,omitempty" jsonschema:"the name of the person this is waiting on"`
 	BlockedBy       string `json:"blocked_by,omitempty" jsonschema:"the id of the task blocking this one"`
@@ -143,6 +145,8 @@ func toView(task model.Task, l lookups) taskView {
 	v.ProjectID = deref(task.ProjectID)
 	v.DueOn = deref(task.DueOn)
 	v.PlannedOn = deref(task.PlannedOn)
+	v.DaySlot = deref(task.DaySlot)
+	v.SlotOrder = task.SlotOrder
 	v.BlockedBy = deref(task.BlockedByID)
 	v.ReferenceURL = deref(task.ReferenceURL)
 	v.ParentID = deref(task.ParentID)
@@ -391,14 +395,15 @@ func briefSummary(b briefOutput) string {
 }
 
 type listTasksInput struct {
-	Status        []string `json:"status,omitempty" jsonschema:"filter by status: inbox, todo, in_progress, blocked, delegated, done, cancelled"`
-	Kind          []string `json:"kind,omitempty" jsonschema:"filter by kind: short, long, recurring, delegated, blocked"`
+	Status        []string `json:"status,omitempty" jsonschema:"filter by status: inbox, todo, in_progress, blocked, delegated, done, cancelled, expired"`
+	Kind          []string `json:"kind,omitempty" jsonschema:"filter by kind: short, long, recurring, routine, delegated, blocked"`
 	Priority      []string `json:"priority,omitempty" jsonschema:"filter by priority: urgent, high, medium, low"`
 	ContextID     string   `json:"context_id,omitempty" jsonschema:"only tasks in this context"`
 	ProjectID     string   `json:"project_id,omitempty" jsonschema:"only tasks in this project"`
 	InboxOnly     bool     `json:"inbox_only,omitempty" jsonschema:"only tasks still awaiting triage, meaning status inbox"`
 	DelegatedToID string   `json:"delegated_to_id,omitempty" jsonschema:"only tasks delegated to this person"`
 	PlannedOn     string   `json:"planned_on,omitempty" jsonschema:"only tasks planned for this YYYY-MM-DD date"`
+	DaySlot       string   `json:"day_slot,omitempty" jsonschema:"only tasks in this day slot: morning, midday, afternoon, evening or night"`
 	DueBefore     string   `json:"due_before,omitempty" jsonschema:"only tasks due on or before this YYYY-MM-DD date"`
 	DueAfter      string   `json:"due_after,omitempty" jsonschema:"only tasks due on or after this YYYY-MM-DD date"`
 	Query         string   `json:"query,omitempty" jsonschema:"free text searched in titles and details"`
@@ -461,6 +466,11 @@ func (h *Handler) listTasks(
 		}
 	}
 
+	if in.DaySlot != "" && !containsStr(model.DaySlots, in.DaySlot) {
+		return toolError("day_slot %q is not valid; use one of: %s",
+			in.DaySlot, strings.Join(model.DaySlots, ", ")), listTasksOutput{}, nil
+	}
+
 	limit := in.Limit
 	if limit <= 0 {
 		limit = 50
@@ -473,6 +483,7 @@ func (h *Handler) listTasks(
 		ProjectID:     in.ProjectID,
 		DelegatedToID: in.DelegatedToID,
 		PlannedOn:     in.PlannedOn,
+		DaySlot:       in.DaySlot,
 		DueBefore:     in.DueBefore,
 		DueAfter:      in.DueAfter,
 		Search:        in.Query,
@@ -741,7 +752,9 @@ func (h *Handler) listRecurrences(
 		return nil, listRecurrencesOutput{}, err
 	}
 
-	items, _, err := h.store.ListRecurrences(ctx, userID, store.RecurrenceFilter{})
+	items, _, err := h.store.ListRecurrences(ctx, userID, store.RecurrenceFilter{
+		Kind: model.RecurrenceClassic,
+	})
 	if err != nil {
 		return nil, listRecurrencesOutput{}, err
 	}

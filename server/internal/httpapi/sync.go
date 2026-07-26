@@ -114,6 +114,14 @@ func (s *Server) handleBrief(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := s.store.ExpireRoutineTasksForUser(
+		r.Context(), ident.UserID, time.Now().UTC(),
+	); err != nil {
+		s.writeStoreError(w, r, err)
+
+		return
+	}
+
 	brief, err := s.store.Brief(r.Context(), ident.UserID, store.BriefFilter{
 		Date:      date,
 		Timezone:  location.String(),

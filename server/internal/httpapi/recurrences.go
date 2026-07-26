@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/nls/checkmate/server/internal/model"
 	"github.com/nls/checkmate/server/internal/patch"
@@ -12,11 +13,14 @@ import (
 )
 
 type recurrenceCreateRequest struct {
+	Kind            string  `json:"kind"`
 	ContextID       string  `json:"context_id"`
 	ProjectID       *string `json:"project_id"`
 	Source          *string `json:"source"`
 	Title           string  `json:"title"`
 	Details         *string `json:"details"`
+	DaySlot         *string `json:"day_slot"`
+	SlotOrder       *int64  `json:"slot_order"`
 	RRule           string  `json:"rrule"`
 	Timezone        string  `json:"timezone"`
 	EstimateMinutes *int64  `json:"estimate_minutes"`
@@ -33,6 +37,8 @@ type recurrenceUpdateRequest struct {
 	Source          patch.Field[string] `json:"source"`
 	Title           patch.Field[string] `json:"title"`
 	Details         patch.Field[string] `json:"details"`
+	DaySlot         patch.Field[string] `json:"day_slot"`
+	SlotOrder       patch.Field[int64]  `json:"slot_order"`
 	RRule           patch.Field[string] `json:"rrule"`
 	Timezone        patch.Field[string] `json:"timezone"`
 	EstimateMinutes patch.Field[int64]  `json:"estimate_minutes"`
@@ -55,6 +61,10 @@ func (s *Server) handleListRecurrences(w http.ResponseWriter, r *http.Request) {
 		ContextID: p.str("context_id"),
 		Active:    p.booleanPtr("active"),
 		State:     p.enum("state", model.RecurrenceStates),
+		Kind:      p.enum("kind", model.RecurrenceKinds),
+	}
+	if f.Kind == "" {
+		f.Kind = model.RecurrenceClassic
 	}
 	f.IncludeDeleted, f.Limit, f.Cursor = p.listOptions()
 
@@ -116,11 +126,29 @@ func (s *Server) handleCreateRecurrence(w http.ResponseWriter, r *http.Request) 
 	v := newValidationError()
 
 	title := requireTitle(v, req.Title)
+	kind := req.Kind
+	if kind == "" {
+		kind = model.RecurrenceClassic
+	}
+	checkEnum(v, "kind", kind, model.RecurrenceKinds)
 
 	if strings.TrimSpace(req.ContextID) == "" {
 		v.add("context_id", "is required")
 	}
 
+	if req.DaySlot != nil {
+		if *req.DaySlot == "" {
+			v.add("day_slot", "cannot be empty")
+		} else {
+			checkEnum(v, "day_slot", *req.DaySlot, model.DaySlots)
+		}
+	}
+	if kind == model.RecurrenceRoutine && req.DaySlot == nil {
+		v.add("day_slot", "is required for a routine")
+	}
+	if req.SlotOrder != nil && *req.SlotOrder < 0 {
+		v.add("slot_order", "cannot be negative")
+	}
 	checkRRule(v, "rrule", req.RRule)
 	requireDate(v, "starts_on", req.StartsOn)
 	checkDate(v, "ends_on", req.EndsOn)
@@ -138,14 +166,22 @@ func (s *Server) handleCreateRecurrence(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	timezone := req.Timezone
+	if kind == model.RecurrenceRoutine {
+		timezone = ident.Timezone
+	}
+
 	created, err := s.store.CreateRecurrence(r.Context(), ident.UserID, store.RecurrenceCreate{
+		Kind:            kind,
 		ContextID:       strings.TrimSpace(req.ContextID),
 		ProjectID:       req.ProjectID,
 		Source:          req.Source,
 		Title:           title,
 		Details:         req.Details,
+		DaySlot:         req.DaySlot,
+		SlotOrder:       req.SlotOrder,
 		RRule:           strings.TrimSpace(req.RRule),
-		Timezone:        req.Timezone,
+		Timezone:        timezone,
 		EstimateMinutes: req.EstimateMinutes,
 		DelegatedToID:   req.DelegatedToID,
 		LeadDays:        req.LeadDays,
@@ -230,6 +266,11 @@ func (s *Server) handleUpdateRecurrence(w http.ResponseWriter, r *http.Request) 
 
 	req.Title = checkTitlePatch(v, req.Title)
 	req.ContextID = checkRequiredStringPatch(v, "context_id", req.ContextID)
+	checkEnumPatch(v, "day_slot", req.DaySlot, model.DaySlots)
+	checkNonNegativePatch(v, "slot_order", req.SlotOrder)
+	if req.SlotOrder.Set && req.SlotOrder.Null {
+		v.add("slot_order", "cannot be null")
+	}
 	checkRRulePatch(v, "rrule", req.RRule)
 	checkTimezonePatch(v, "timezone", req.Timezone)
 	checkPositivePatch(v, "estimate_minutes", req.EstimateMinutes)
@@ -266,6 +307,8 @@ func (s *Server) handleUpdateRecurrence(w http.ResponseWriter, r *http.Request) 
 		Source:          req.Source,
 		Title:           req.Title,
 		Details:         req.Details,
+		DaySlot:         req.DaySlot,
+		SlotOrder:       req.SlotOrder,
 		RRule:           req.RRule,
 		Timezone:        req.Timezone,
 		EstimateMinutes: req.EstimateMinutes,
@@ -279,6 +322,15 @@ func (s *Server) handleUpdateRecurrence(w http.ResponseWriter, r *http.Request) 
 		s.writeStoreError(w, r, err)
 
 		return
+	}
+
+	if updated.Kind == model.RecurrenceRoutine && updated.Active {
+		if err := s.store.PrepareRoutineRespawn(
+			r.Context(), ident.UserID, updated.ID, time.Now().UTC(),
+		); err != nil {
+			s.log.Warn("could not rewind a routine after editing",
+				slog.String("recurrence_id", updated.ID), slog.Any("error", err))
+		}
 	}
 
 	s.spawnNow(r, ident.UserID, updated.ID)

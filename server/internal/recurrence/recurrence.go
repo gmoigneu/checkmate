@@ -24,6 +24,7 @@ import (
 	"github.com/teambition/rrule-go"
 
 	"github.com/nls/checkmate/server/internal/database"
+	"github.com/nls/checkmate/server/internal/model"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
@@ -77,6 +78,9 @@ type Result struct {
 	// Failed counts templates that could not be processed, usually an unparseable
 	// rule. One bad template must not stop the others.
 	Failed int
+
+	// Expired counts routine occurrences closed because their local day ended.
+	Expired int
 }
 
 // Run makes one pass over every active recurrence that is due.
@@ -89,6 +93,12 @@ func (s *Spawner) Run(ctx context.Context) (Result, error) {
 	var result Result
 
 	now := s.now()
+
+	expired, err := s.store.ExpireRoutineTasks(ctx, now)
+	if err != nil {
+		return result, err
+	}
+	result.Expired = expired
 
 	// The horizon is the furthest date worth materializing: a template's own
 	// lead_days is added per template, so this is only the outer bound.
@@ -141,10 +151,15 @@ const maxLeadDays = 90
 // A template that is inactive or gone is not an error: the caller only knows it
 // asked, and there is nothing to do.
 func (s *Spawner) RunTemplate(ctx context.Context, userID, recurrenceID string) (Result, error) {
+	expired, err := s.store.ExpireRoutineTasks(ctx, s.now())
+	if err != nil {
+		return Result{}, err
+	}
+
 	template, err := s.store.GetDueRecurrence(ctx, userID, recurrenceID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return Result{}, nil
+			return Result{Expired: expired}, nil
 		}
 
 		return Result{}, err
@@ -156,6 +171,7 @@ func (s *Spawner) RunTemplate(ctx context.Context, userID, recurrenceID string) 
 	}
 
 	result.Templates = 1
+	result.Expired = expired
 
 	return result, nil
 }
@@ -180,10 +196,29 @@ func (s *Spawner) runOne(ctx context.Context, template store.DueRecurrence, now 
 		return result, err
 	}
 
+	today := now.In(location).Format(database.DateOnly)
+	if template.Kind == model.RecurrenceRoutine {
+		appliesToday, err := occurrenceMatches(rule, location, today)
+		if err != nil {
+			return result, err
+		}
+
+		if err := s.store.ReconcileRoutineOccurrence(
+			ctx, template, today, appliesToday, now,
+		); err != nil {
+			return result, err
+		}
+	}
+
 	// Dates are compared as plain YYYY-MM-DD in the template's own zone, which is
 	// what makes "today" mean the user's today rather than the server's.
 	earliest := now.In(location).AddDate(0, 0, -CatchUpDays).Format(database.DateOnly)
 	latest := now.In(location).AddDate(0, 0, int(template.LeadDays)).Format(database.DateOnly)
+	if template.Kind == model.RecurrenceRoutine {
+		// A missed routine item has no value as a newly-created overdue task.
+		// Routine history starts when the spawner actually sees the day.
+		earliest = today
+	}
 
 	// Resume from where the series left off, or from its start.
 	cursor := template.StartsOn
@@ -275,6 +310,17 @@ func (s *Spawner) runOne(ctx context.Context, template store.DueRecurrence, now 
 	}
 
 	return result, nil
+}
+
+func occurrenceMatches(rule *rrule.RRule, location *time.Location, date string) (bool, error) {
+	parsed, err := time.ParseInLocation(database.DateOnly, date, location)
+	if err != nil {
+		return false, fmt.Errorf("recurrence: parse occurrence date %q: %w", date, err)
+	}
+
+	next := rule.After(parsed.Add(-time.Second), true)
+
+	return !next.IsZero() && next.In(location).Format(database.DateOnly) == date, nil
 }
 
 // buildRule turns a stored rrule string into an evaluator anchored at starts_on.
