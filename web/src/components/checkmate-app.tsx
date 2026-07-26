@@ -166,7 +166,14 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				target instanceof HTMLElement &&
 				(target.matches("input, textarea, select, [contenteditable='true']") ||
 					Boolean(target.closest('[role="menu"]')));
-			if (event.key.toLowerCase() === "c" && !isTypingTarget)
+			if (
+				event.key.toLowerCase() === "c" &&
+				!event.metaKey &&
+				!event.ctrlKey &&
+				!event.altKey &&
+				!event.shiftKey &&
+				!isTypingTarget
+			)
 				setCaptureOpen(true);
 		};
 		window.addEventListener("keydown", handler);
@@ -1474,6 +1481,8 @@ function TaskListPage({
 			</p>
 			{tasks.isLoading ? (
 				<LoadingPage />
+			) : tasks.error ? (
+				<TaskQueryError onRetry={() => tasks.refetch()} />
 			) : tasks.data?.data.length ? (
 				<div className="overflow-hidden rounded-2xl border border-border bg-card">
 					{tasks.data.data.map((task) => (
@@ -1628,7 +1637,11 @@ function ContextPage({
 				</p>
 			)}
 			<h2 className="mb-3 font-display text-2xl">Open tasks</h2>
-			{tasks.data?.data.length ? (
+			{tasks.isLoading ? (
+				<LoadingPage />
+			) : tasks.error ? (
+				<TaskQueryError onRetry={() => tasks.refetch()} />
+			) : tasks.data?.data.length ? (
 				<div className="overflow-hidden rounded-2xl border border-border bg-card">
 					{tasks.data.data.map((task) => (
 						<TaskRow key={task.id} task={task} />
@@ -1703,7 +1716,11 @@ function ProjectPage({
 					Add task
 				</Button>
 			</div>
-			{tasks.data?.data.length ? (
+			{tasks.isLoading ? (
+				<LoadingPage />
+			) : tasks.error ? (
+				<TaskQueryError onRetry={() => tasks.refetch()} />
+			) : tasks.data?.data.length ? (
 				<div className="overflow-hidden rounded-2xl border border-border bg-card">
 					{tasks.data.data.map((task) => (
 						<TaskRow key={task.id} task={task} />
@@ -2090,14 +2107,28 @@ function LoadingPage() {
 		</div>
 	);
 }
-function ErrorState({ onRetry }: { onRetry: () => void }) {
+function TaskQueryError({ onRetry }: { onRetry: () => void }) {
+	return (
+		<ErrorState
+			onRetry={onRetry}
+			title="Tasks are unavailable"
+			description="Check your connection and try loading this task list again."
+		/>
+	);
+}
+function ErrorState({
+	onRetry,
+	title = "The brief is unavailable",
+	description = "Your last synced data remains readable when it is available. Try again when the server is reachable.",
+}: {
+	onRetry: () => void;
+	title?: string;
+	description?: string;
+}) {
 	return (
 		<div className="rounded-2xl border border-[var(--overdue)]/30 bg-[var(--overdue-bg)] p-6">
-			<h2 className="font-display text-2xl">The brief is unavailable</h2>
-			<p className="mt-2 text-sm text-muted-foreground">
-				Your last synced data remains readable when it is available. Try again
-				when the server is reachable.
-			</p>
+			<h2 className="font-display text-2xl">{title}</h2>
+			<p className="mt-2 text-sm text-muted-foreground">{description}</p>
 			<Button className="mt-4" variant="outline" onClick={onRetry}>
 				<RefreshCw className="mr-2 size-4" />
 				Try again
