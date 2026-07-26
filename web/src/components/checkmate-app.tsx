@@ -59,6 +59,7 @@ type Page =
 	| "tasks"
 	| "waiting"
 	| "repeating"
+	| "blocked"
 	| "settings"
 	| "context"
 	| "project";
@@ -108,11 +109,16 @@ function PriorityBadge({ priority }: { priority: TaskPriority }) {
 	);
 }
 
+function briefQueryKey(date: string, contextId?: string) {
+	return ["brief", date, contextId ?? "all"] as const;
+}
+
 function pageForPath(pathname: string): Page {
 	if (pathname === "/") return "brief";
 	if (pathname.startsWith("/inbox")) return "inbox";
 	if (pathname.startsWith("/waiting")) return "waiting";
 	if (pathname.startsWith("/repeating")) return "repeating";
+	if (pathname.startsWith("/blocked")) return "blocked";
 	if (pathname.startsWith("/settings")) return "settings";
 	if (pathname.startsWith("/c/")) return "context";
 	if (pathname.startsWith("/p/")) return "project";
@@ -143,7 +149,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		retry: false,
 	});
 	const brief = useQuery({
-		queryKey: ["brief", todayString()],
+		queryKey: briefQueryKey(todayString()),
 		queryFn: () => api.brief(todayString()),
 		retry: false,
 	});
@@ -199,12 +205,24 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 			);
 		if (page === "inbox")
 			return <InboxPage contexts={appContexts} people={appPeople} />;
-		if (page === "waiting") return <WaitingPage brief={loadedBrief} />;
+		if (page === "waiting")
+			return <WaitingPage brief={loadedBrief} contexts={appContexts} />;
 		if (page === "repeating")
 			return (
-				<EmptyPage
+				<TaskListPage
 					title="Repeating"
-					description="Recurring work will appear here. Create a series from a task when you know the rhythm."
+					description="Recurring work, in the context where it belongs."
+					contexts={appContexts}
+					kind="recurring"
+				/>
+			);
+		if (page === "blocked")
+			return (
+				<TaskListPage
+					title="Blocked"
+					description="Work that needs something else to move first."
+					contexts={appContexts}
+					fixedStatus="blocked"
 				/>
 			);
 		if (page === "settings") return <SettingsPage me={me.data} />;
@@ -220,7 +238,13 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 			return (
 				<ProjectPage projects={appProjects} pathname={location.pathname} />
 			);
-		return <TaskListPage />;
+		return (
+			<TaskListPage
+				title="Upcoming"
+				description="Everything ahead, with an honest order."
+				contexts={appContexts}
+			/>
+		);
 	};
 
 	return (
@@ -439,7 +463,13 @@ function Sidebar({
 						Repeating
 					</span>
 				</Link>
-				<Link to="/tasks" className="cm-sidebar-item">
+				<Link
+					to="/blocked"
+					className={cn(
+						"cm-sidebar-item",
+						page === "blocked" && "cm-sidebar-item-selected",
+					)}
+				>
 					<span className="cm-sidebar-label">
 						<OctagonX className="size-[17px] text-[var(--task-blocked-fg)]" />
 						Blocked
@@ -471,6 +501,36 @@ function Count({ value }: { value: number }) {
 	) : null;
 }
 
+function ContextFilter({
+	contexts,
+	value,
+	onChange,
+	label,
+	className = "cm-context-select",
+}: {
+	contexts: Context[];
+	value?: string;
+	onChange: (contextId?: string) => void;
+	label: string;
+	className?: string;
+}) {
+	return (
+		<select
+			value={value ?? ""}
+			onChange={(event) => onChange(event.target.value || undefined)}
+			className={className}
+			aria-label={label}
+		>
+			<option value="">All contexts</option>
+			{contexts.map((context) => (
+				<option key={context.id} value={context.id}>
+					{context.name}
+				</option>
+			))}
+		</select>
+	);
+}
+
 function BriefPage({
 	brief,
 	contexts,
@@ -483,11 +543,11 @@ function BriefPage({
 	const [date, setDate] = useState(brief.date || todayString());
 	const [contextId, setContextId] = useState<string>();
 	const query = useQuery({
-		queryKey: ["brief", date, contextId],
+		queryKey: briefQueryKey(date, contextId),
 		queryFn: () => api.brief(date, contextId),
-		initialData: brief,
 	});
 	const data = query.data ?? brief;
+	const hasCurrentData = Boolean(query.data);
 	const canonical = useMemo(() => {
 		const orderedBuckets: Array<[string, Task[]]> = [
 			["overdue", data.overdue],
@@ -590,22 +650,17 @@ function BriefPage({
 							<ChevronRight className="size-4" />
 						</Button>
 					</div>
-					<select
-						value={contextId ?? ""}
-						onChange={(event) => setContextId(event.target.value || undefined)}
-						className="cm-context-select"
-						aria-label="Filter the brief by context"
-					>
-						<option value="">All contexts</option>
-						{contexts.map((context) => (
-							<option key={context.id} value={context.id}>
-								{context.name}
-							</option>
-						))}
-					</select>
+					<ContextFilter
+						contexts={contexts}
+						value={contextId}
+						onChange={setContextId}
+						label="Filter the brief by context"
+					/>
 				</div>
 			</div>
-			{perfect ? (
+			{!hasCurrentData ? (
+				<LoadingPage />
+			) : perfect ? (
 				<PerfectDay onCapture={onOpenCapture} />
 			) : (
 				<>
@@ -1312,25 +1367,48 @@ function TriageCard({
 	);
 }
 
-function TaskListPage() {
+function TaskListPage({
+	title,
+	description,
+	contexts,
+	fixedStatus,
+	kind,
+}: {
+	title: string;
+	description: string;
+	contexts: Context[];
+	fixedStatus?: TaskStatus;
+	kind?: Task["kind"];
+}) {
 	const [query, setQuery] = useState("");
 	const [status, setStatus] = useState("");
 	const [priority, setPriority] = useState("");
+	const [contextId, setContextId] = useState<string>();
 	const parameters = new URLSearchParams({ limit: "200" });
 	if (query) parameters.set("q", query);
-	if (status) parameters.set("status", status);
+	if (fixedStatus) parameters.set("status", fixedStatus);
+	else if (status) parameters.set("status", status);
 	if (priority) parameters.set("priority", priority);
+	if (contextId) parameters.set("context_id", contextId);
+	if (kind) parameters.set("kind", kind);
 	const tasks = useQuery({
-		queryKey: ["tasks", query, status, priority],
+		queryKey: [
+			"tasks",
+			kind ?? "all-kinds",
+			fixedStatus ?? status,
+			query,
+			priority,
+			contextId ?? "all-contexts",
+		],
 		queryFn: () => api.tasks(parameters),
 	});
 	return (
 		<section>
 			<div className="mb-8">
 				<p className="mb-2 text-sm font-medium text-muted-foreground">
-					Everything, with an honest order.
+					{description}
 				</p>
-				<h1 className="font-display text-4xl tracking-tight">Tasks</h1>
+				<h1 className="font-display text-4xl tracking-tight">{title}</h1>
 			</div>
 			<div className="mb-5 flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 sm:flex-row">
 				<div className="flex flex-1 items-center gap-2">
@@ -1342,24 +1420,33 @@ function TaskListPage() {
 						className="border-0 shadow-none focus-visible:ring-0"
 					/>
 				</div>
-				<select
-					value={status}
-					onChange={(event) => setStatus(event.target.value)}
+				<ContextFilter
+					contexts={contexts}
+					value={contextId}
+					onChange={setContextId}
+					label={`Filter ${title.toLowerCase()} by context`}
 					className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
-					aria-label="Filter tasks by status"
-				>
-					<option value="">Any status</option>
-					<option value="todo,in_progress">Open work</option>
-					<option value="blocked">Blocked</option>
-					<option value="delegated">Waiting on</option>
-					<option value="done">Done</option>
-					<option value="cancelled">Cancelled</option>
-				</select>
+				/>
+				{fixedStatus ? null : (
+					<select
+						value={status}
+						onChange={(event) => setStatus(event.target.value)}
+						className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
+						aria-label={`Filter ${title.toLowerCase()} by status`}
+					>
+						<option value="">Any status</option>
+						<option value="todo,in_progress">Open work</option>
+						<option value="blocked">Blocked</option>
+						<option value="delegated">Waiting on</option>
+						<option value="done">Done</option>
+						<option value="cancelled">Cancelled</option>
+					</select>
+				)}
 				<select
 					value={priority}
 					onChange={(event) => setPriority(event.target.value)}
 					className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
-					aria-label="Filter tasks by priority"
+					aria-label={`Filter ${title.toLowerCase()} by priority`}
 				>
 					<option value="">Any priority</option>
 					{priorityOptions.map((option) => (
@@ -1391,17 +1478,40 @@ function TaskListPage() {
 	);
 }
 
-function WaitingPage({ brief }: { brief: Brief }) {
+function WaitingPage({
+	brief,
+	contexts,
+}: {
+	brief: Brief;
+	contexts: Context[];
+}) {
+	const [contextId, setContextId] = useState<string>();
+	const date = todayString();
+	const query = useQuery({
+		queryKey: briefQueryKey(date, contextId),
+		queryFn: () => api.brief(date, contextId),
+	});
+	const data = query.data ?? brief;
 	return (
 		<section>
-			<div className="mb-8">
-				<p className="mb-2 text-sm font-medium text-muted-foreground">
-					People, not loose ends.
-				</p>
-				<h1 className="font-display text-4xl tracking-tight">Waiting on</h1>
+			<div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+				<div>
+					<p className="mb-2 text-sm font-medium text-muted-foreground">
+						People, not loose ends.
+					</p>
+					<h1 className="font-display text-4xl tracking-tight">Waiting on</h1>
+				</div>
+				<ContextFilter
+					contexts={contexts}
+					value={contextId}
+					onChange={setContextId}
+					label="Filter waiting on by context"
+				/>
 			</div>
-			{brief.waiting_on.length ? (
-				<WaitingSection groups={brief.waiting_on} />
+			{!query.data ? (
+				<LoadingPage />
+			) : data.waiting_on.length ? (
+				<WaitingSection groups={data.waiting_on} contexts={contexts} />
 			) : (
 				<EmptyPage
 					title="No one is holding up your day"

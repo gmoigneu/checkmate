@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BlockedRouteImport } from './routes/blocked'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as RepeatingRouteImport } from './routes/repeating'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -23,6 +24,11 @@ import { Route as TTaskIdRouteImport } from './routes/t.$taskId'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlockedRoute = BlockedRouteImport.update({
+  id: '/blocked',
+  path: '/blocked',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InboxRoute = InboxRouteImport.update({
@@ -73,6 +79,7 @@ const TTaskIdRoute = TTaskIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/blocked': typeof BlockedRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/settings': typeof SettingsRoute
@@ -85,6 +92,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/blocked': typeof BlockedRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/settings': typeof SettingsRoute
@@ -98,6 +106,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/blocked': typeof BlockedRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/settings': typeof SettingsRoute
@@ -112,6 +121,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/blocked'
     | '/inbox'
     | '/repeating'
     | '/settings'
@@ -124,6 +134,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/blocked'
     | '/inbox'
     | '/repeating'
     | '/settings'
@@ -136,6 +147,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/blocked'
     | '/inbox'
     | '/repeating'
     | '/settings'
@@ -149,6 +161,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BlockedRoute: typeof BlockedRoute
   InboxRoute: typeof InboxRoute
   RepeatingRoute: typeof RepeatingRoute
   SettingsRoute: typeof SettingsRoute
@@ -167,6 +180,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blocked': {
+      id: '/blocked'
+      path: '/blocked'
+      fullPath: '/blocked'
+      preLoaderRoute: typeof BlockedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/inbox': {
@@ -237,6 +257,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BlockedRoute: BlockedRoute,
   InboxRoute: InboxRoute,
   RepeatingRoute: RepeatingRoute,
   SettingsRoute: SettingsRoute,
