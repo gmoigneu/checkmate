@@ -429,6 +429,27 @@ kbd {
   border-radius: 50%;
 }
 
+.cm-context-card {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-sunken);
+  box-shadow: var(--shadow-inset);
+}
+
+.cm-context-kicker,
+.cm-context-stats {
+  color: var(--text-secondary);
+}
+
+.cm-context-stats {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cm-context-stats b {
+  color: var(--text-primary);
+  font: 500 13px/1.3 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 .cm-project-link {
   display: flex;
   height: 30px;
