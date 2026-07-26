@@ -15,6 +15,29 @@ curl -s localhost:8080/healthz
 With `-token`, `user create` prints an API token once. Only the token's SHA-256
 is stored, so copy it there and then.
 
+### Local fixtures
+
+Create a local demo account with representative data:
+
+```sh
+make fixtures
+```
+
+This recreates only `demo@checkmate.local`, prints a new API token, and loads
+contexts, projects in every lifecycle state, people, active/paused/finished
+recurrences, every task kind/status/priority/source/capture method, and completed
+or cancelled history spread across the previous three calendar months. Dates are
+relative to the day the command runs, so overdue, today, and upcoming views stay
+useful.
+
+To keep an existing fixture account safe by default, the CLI itself requires an
+explicit reset:
+
+```sh
+go run ./cmd/checkmate fixtures load
+go run ./cmd/checkmate fixtures load -reset -email demo@checkmate.local
+```
+
 ## Layout
 
 ```

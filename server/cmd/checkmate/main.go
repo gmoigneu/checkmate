@@ -22,6 +22,7 @@ import (
 	"github.com/nls/checkmate/server/internal/account"
 	"github.com/nls/checkmate/server/internal/config"
 	"github.com/nls/checkmate/server/internal/database"
+	"github.com/nls/checkmate/server/internal/fixtures"
 	"github.com/nls/checkmate/server/internal/httpapi"
 	"github.com/nls/checkmate/server/internal/login"
 	"github.com/nls/checkmate/server/internal/mcpserver"
@@ -45,6 +46,7 @@ Usage:
   checkmate migrate status             Show migration state
   checkmate user create -email E -name N [-timezone TZ]
   checkmate token create -email E -name N [-scopes "read write"]
+  checkmate fixtures load [-email E] [-name N] [-timezone TZ] [-reset]
   checkmate recurrence spawn           Materialize due recurring tasks once
   checkmate version                    Print the build version
 
@@ -104,6 +106,8 @@ func run(args []string) error {
 		return userCmd(ctx, cfg, log, args[1:])
 	case "token":
 		return tokenCmd(ctx, cfg, log, args[1:])
+	case "fixtures":
+		return fixturesCmd(ctx, cfg, log, args[1:])
 	case "recurrence":
 		return recurrenceCmd(ctx, cfg, log, args[1:])
 	case "version":
@@ -398,6 +402,10 @@ func userCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []st
 		return err
 	}
 
+	if _, err := time.LoadLocation(*timezone); err != nil {
+		return fmt.Errorf("load fixture timezone %q: %w", *timezone, err)
+	}
+
 	db, err := open(ctx, cfg, log, cfg.AutoMigrate)
 	if err != nil {
 		return err
@@ -454,6 +462,83 @@ func tokenCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []s
 	}
 
 	printToken(*name, secret)
+
+	return nil
+}
+
+func fixturesCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []string) error {
+	if len(args) == 0 || args[0] != "load" {
+		return errors.New("fixtures needs a subcommand: load")
+	}
+
+	fs := flag.NewFlagSet("fixtures load", flag.ContinueOnError)
+	email := fs.String("email", "demo@checkmate.local", "fixture account email")
+	name := fs.String("name", "Checkmate Demo", "fixture account display name")
+	timezone := fs.String("timezone", "Europe/Paris", "IANA timezone for relative fixture dates")
+	tokenName := fs.String("token", "Local fixtures", "API token name; empty disables token creation")
+	reset := fs.Bool("reset", false, "delete and recreate the fixture account if it already exists")
+
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+
+	db, err := open(ctx, cfg, log, cfg.AutoMigrate)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if *reset {
+		var userID string
+		err := db.QueryRowContext(ctx, `SELECT id FROM users WHERE email = ?`, *email).Scan(&userID)
+		switch {
+		case err == nil:
+			if _, err := db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID); err != nil {
+				return fmt.Errorf("delete existing fixture account: %w", err)
+			}
+		case !errors.Is(err, sql.ErrNoRows):
+			return fmt.Errorf("find existing fixture account: %w", err)
+		}
+	}
+
+	user, err := account.CreateUser(ctx, db, *email, *name, *timezone)
+	if errors.Is(err, account.ErrEmailTaken) {
+		return fmt.Errorf("fixture account %s already exists; pass -reset to recreate it", *email)
+	}
+	if err != nil {
+		return err
+	}
+
+	keepUser := false
+	defer func() {
+		if !keepUser {
+			_, _ = db.ExecContext(context.Background(), `DELETE FROM users WHERE id = ?`, user.ID)
+		}
+	}()
+
+	summary, err := fixtures.Load(ctx, db, user.ID, fixtures.Options{Timezone: user.Timezone})
+	if err != nil {
+		return err
+	}
+
+	var secret string
+	if *tokenName != "" {
+		secret, err = account.CreateToken(ctx, db, user.ID, *tokenName, "")
+		if err != nil {
+			return err
+		}
+	}
+
+	keepUser = true
+	fmt.Printf(
+		"loaded fixtures for %s <%s>: contexts=%d projects=%d people=%d recurrences=%d tasks=%d history_from=%s\n",
+		user.Name, user.Email, summary.Contexts, summary.Projects, summary.People,
+		summary.Recurrences, summary.Tasks, summary.HistoryFrom,
+	)
+
+	if secret != "" {
+		printToken(*tokenName, secret)
+	}
 
 	return nil
 }
