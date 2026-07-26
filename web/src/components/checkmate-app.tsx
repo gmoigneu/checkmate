@@ -43,6 +43,7 @@ import {
 	formatMinutes,
 	todayString,
 } from "@/lib/format";
+import { taskListStatusFilters, taskStatusLabels } from "@/lib/status";
 import type {
 	Brief,
 	Context,
@@ -931,12 +932,23 @@ function TaskRow({
 				isDone && "cm-task-row-done",
 			)}
 		>
-			<TaskStatusMenu
-				status={task.status}
-				onStatusChange={(status) => mutation.mutate(status)}
-				disabled={mutation.isPending}
-				taskTitle={task.title}
-			/>
+			<div className="flex shrink-0 flex-col items-start gap-1">
+				<TaskStatusMenu
+					status={task.status}
+					onStatusChange={(status) => mutation.mutate(status)}
+					disabled={mutation.isPending}
+					taskTitle={task.title}
+					canDelegate={Boolean(task.delegated_to_id)}
+				/>
+				{mutation.error ? (
+					<span
+						role="alert"
+						className="max-w-36 text-xs leading-tight text-destructive"
+					>
+						{mutation.error.message}
+					</span>
+				) : null}
+			</div>
 			<Link
 				to="/t/$taskId"
 				params={{ taskId: task.id }}
@@ -1436,10 +1448,11 @@ function TaskListPage({
 					>
 						<option value="">Any status</option>
 						<option value="todo,in_progress">Open work</option>
-						<option value="blocked">Blocked</option>
-						<option value="delegated">Waiting on</option>
-						<option value="done">Done</option>
-						<option value="cancelled">Cancelled</option>
+						{taskListStatusFilters.map((status) => (
+							<option key={status} value={status}>
+								{taskStatusLabels[status]}
+							</option>
+						))}
 					</select>
 				)}
 				<select
@@ -1808,6 +1821,7 @@ function TaskDetail({
 								disabled={update.isPending}
 								className="mt-1"
 								taskTitle={task.title}
+								canDelegate={Boolean(task.delegated_to_id)}
 							/>
 							<div className="min-w-0 flex-1">
 								{editing ? (
@@ -1839,6 +1853,7 @@ function TaskDetail({
 									status={task.status}
 									onStatusChange={(status) => update.mutate({ status })}
 									disabled={update.isPending}
+									canDelegate={Boolean(task.delegated_to_id)}
 								/>
 							</Field>
 							<Field label="Priority">
@@ -1944,6 +1959,14 @@ function TaskDetail({
 								</select>
 							</Field>
 						</div>
+						{update.error ? (
+							<p
+								role="alert"
+								className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+							>
+								{update.error.message}
+							</p>
+						) : null}
 						<div className="mt-8">
 							<p className="mb-2 text-sm font-medium">Details</p>
 							<Textarea
