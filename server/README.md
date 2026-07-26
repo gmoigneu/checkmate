@@ -15,6 +15,22 @@ curl -s localhost:8080/healthz
 With `-token`, `user create` prints an API token once. Only the token's SHA-256
 is stored, so copy it there and then.
 
+## Portainer
+
+Deploy [`portainer-stack.yml`](portainer-stack.yml) as a Portainer stack. The
+stack pulls `ghcr.io/gmoigneu/checkmate`, publishes port `8080`, applies
+database migrations on startup, and persists sqlite data in the
+`checkmate-data` volume.
+
+Set `CHECKMATE_BASE_URL` in Portainer to the public HTTPS origin, for example
+`https://checkmate.example.com`. Google sign-in also requires
+`CHECKMATE_GOOGLE_CLIENT_ID` and `CHECKMATE_GOOGLE_CLIENT_SECRET`. The host port,
+image tag, and timezone can be overridden with `CHECKMATE_PORT`,
+`CHECKMATE_IMAGE_TAG`, and `CHECKMATE_DEFAULT_TIMEZONE`.
+
+If the GHCR package is private, add `ghcr.io` as a Portainer registry using a
+GitHub token with `read:packages` access before deploying the stack.
+
 ## Layout
 
 ```
