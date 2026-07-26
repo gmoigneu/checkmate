@@ -324,6 +324,50 @@ func TestBriefExpiresOnlyTheCallingUsersRoutine(t *testing.T) {
 	}
 }
 
+func TestBriefSurvivesRoutineExpirationWriteFailure(t *testing.T) {
+	h := newHarness(t)
+	u := h.user("you@example.com")
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+
+	recurrenceID := h.do(http.MethodPost, "/v1/recurrences", u.Token, map[string]any{
+		"kind":       "routine",
+		"context_id": h.firstContextID(u),
+		"title":      "Expiration can retry later",
+		"day_slot":   "morning",
+		"rrule":      "FREQ=DAILY",
+		"starts_on":  today,
+	}).expect(http.StatusCreated).id()
+	taskID := h.do(http.MethodGet, "/v1/tasks?recurrence_id="+recurrenceID, u.Token, nil).
+		expect(http.StatusOK).list()[0]["id"].(string)
+
+	if _, err := h.store.DB().Exec(
+		`UPDATE tasks SET occurrence_on = ?, due_on = ?, planned_on = ? WHERE id = ?`,
+		yesterday, yesterday, yesterday, taskID,
+	); err != nil {
+		t.Fatalf("move occurrence to yesterday: %v", err)
+	}
+	if _, err := h.store.DB().Exec(`
+		CREATE TRIGGER fail_routine_expiration
+		BEFORE UPDATE OF expired_at ON tasks
+		WHEN NEW.expired_at IS NOT NULL
+		BEGIN
+			SELECT RAISE(ABORT, 'simulated expiration write failure');
+		END`); err != nil {
+		t.Fatalf("create expiration failure trigger: %v", err)
+	}
+
+	h.do(http.MethodGet, "/v1/brief?date="+today+"&timezone=UTC", u.Token, nil).
+		expect(http.StatusOK)
+
+	status := h.do(http.MethodGet, "/v1/tasks/"+taskID, u.Token, nil).
+		expect(http.StatusOK).decode()["status"]
+	if status != "todo" {
+		t.Errorf("task status = %#v, want failed expiration left untouched", status)
+	}
+}
+
 func TestRoutineBriefOutcomeTotalsAreNotCapped(t *testing.T) {
 	h := newHarness(t)
 	u := h.user("you@example.com")

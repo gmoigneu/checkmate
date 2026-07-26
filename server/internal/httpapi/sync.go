@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -117,9 +118,11 @@ func (s *Server) handleBrief(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.store.ExpireRoutineTasksForUser(
 		r.Context(), ident.UserID, time.Now().UTC(),
 	); err != nil {
-		s.writeStoreError(w, r, err)
-
-		return
+		// Expiration keeps routine state fresh, but a transient write failure
+		// must not make the otherwise read-only brief unavailable.
+		s.log.Warn("could not expire routine tasks while loading brief",
+			slog.String("user_id", ident.UserID),
+			slog.Any("error", err))
 	}
 
 	brief, err := s.store.Brief(r.Context(), ident.UserID, store.BriefFilter{

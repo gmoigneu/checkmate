@@ -377,7 +377,7 @@ func (s *Store) briefTasks(ctx context.Context, where string, args []any, order 
 		        coalesce(sum(coalesce(estimate_minutes, 0)), 0),
 		        coalesce(sum(CASE WHEN estimate_minutes IS NULL THEN 1 ELSE 0 END), 0),
 		        coalesce(sum(CASE
-		          WHEN expired_at IS NULL AND status IN ('todo', 'in_progress', 'blocked', 'delegated')
+		          WHEN expired_at IS NULL AND status IN `+routineOpenStatusesSQL+`
 		          THEN 1 ELSE 0 END), 0),
 		        coalesce(sum(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0),
 		        coalesce(sum(CASE WHEN expired_at IS NOT NULL THEN 1 ELSE 0 END), 0)

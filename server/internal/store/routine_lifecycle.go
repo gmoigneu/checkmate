@@ -7,9 +7,19 @@ import (
 	"time"
 
 	"github.com/nls/checkmate/server/internal/database"
+	"github.com/nls/checkmate/server/internal/model"
 )
 
-var routineOpenStatuses = []string{"todo", "in_progress", "blocked", "delegated"}
+const routineOpenStatusesSQL = "('" + model.StatusTodo + "', '" +
+	model.StatusInProgress + "', '" + model.StatusBlocked + "', '" +
+	model.StatusDelegated + "')"
+
+var routineOpenStatuses = []string{
+	model.StatusTodo,
+	model.StatusInProgress,
+	model.StatusBlocked,
+	model.StatusDelegated,
+}
 
 // ExpireRoutineTasks closes routine occurrences whose account-local day has
 // ended. Expiration is terminal: the stored cancelled status satisfies the
@@ -110,16 +120,18 @@ func (s *Store) expireRoutineTaskIDs(ctx context.Context, ids []string, now time
 			WHERE id = ?
 			  AND deleted_at IS NULL
 			  AND expired_at IS NULL
-			  AND status IN ('todo', 'in_progress', 'blocked', 'delegated')`,
+			  AND status IN `+routineOpenStatusesSQL,
 			expiredAt, expiredAt, taskID,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("store: expire routine task: %w", err)
 		}
 
-		if affected, err := res.RowsAffected(); err == nil {
-			expired += int(affected)
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return 0, fmt.Errorf("store: count expired routine task: %w", err)
 		}
+		expired += int(affected)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -192,7 +204,7 @@ func (s *Store) ReconcileRoutineOccurrence(
 			    expired_at = ?, updated_at = ?
 			WHERE user_id = ? AND recurrence_id = ? AND occurrence_on = ?
 			  AND deleted_at IS NULL AND expired_at IS NULL
-			  AND status IN ('todo', 'in_progress', 'blocked', 'delegated')`,
+			  AND status IN `+routineOpenStatusesSQL,
 			now.UTC().Format(database.Timestamp), now.UTC().Format(database.Timestamp),
 			template.UserID, template.ID, occurrenceOn,
 		)
@@ -215,7 +227,7 @@ func (s *Store) ReconcileRoutineOccurrence(
 		    status = `+statusExpr+`, updated_at = `+nowExpr+`
 		WHERE user_id = ? AND recurrence_id = ? AND occurrence_on = ?
 		  AND deleted_at IS NULL AND expired_at IS NULL
-		  AND status IN ('todo', 'in_progress', 'blocked', 'delegated')`,
+		  AND status IN `+routineOpenStatusesSQL,
 		template.ContextID, template.ProjectID, template.SourceKey, template.Title, template.Details,
 		template.DaySlot, template.SlotOrder, template.EstimateMinutes, template.DelegatedToID,
 		template.DelegatedToID,
@@ -239,7 +251,7 @@ func expireOpenRoutineOccurrencesTx(
 		    expired_at = `+nowExpr+`, updated_at = `+nowExpr+`
 		WHERE user_id = ? AND recurrence_id = ?
 		  AND deleted_at IS NULL AND expired_at IS NULL
-		  AND status IN ('todo', 'in_progress', 'blocked', 'delegated')`,
+		  AND status IN `+routineOpenStatusesSQL,
 		userID, recurrenceID,
 	)
 	if err != nil {
