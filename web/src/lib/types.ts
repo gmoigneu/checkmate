@@ -17,6 +17,7 @@ export type TaskKind =
 	| "routine";
 export type TaskPriority = "urgent" | "high" | "medium" | "low";
 export type DaySlot = "morning" | "midday" | "afternoon" | "evening" | "night";
+export type ProjectStatus = "active" | "paused" | "done" | "archived";
 
 export interface Context {
 	id: string;
@@ -32,7 +33,7 @@ export interface Project {
 	context_id: string;
 	name: string;
 	description: string | null;
-	status: "active" | "paused" | "done" | "archived";
+	status: ProjectStatus;
 }
 
 export interface Person {
