@@ -1,0 +1,23 @@
+services:
+  checkmate:
+    image: ghcr.io/gmoigneu/checkmate:${CHECKMATE_IMAGE_TAG:-latest}
+    pull_policy: always
+    command: ["serve"]
+    restart: unless-stopped
+    stop_grace_period: 20s
+    ports:
+      - "${CHECKMATE_PORT:-8080}:8080"
+    environment:
+      CHECKMATE_ENV: production
+      CHECKMATE_ADDR: ":8080"
+      CHECKMATE_DB_PATH: /data/checkmate.db
+      CHECKMATE_AUTO_MIGRATE: "true"
+      CHECKMATE_BASE_URL: "${CHECKMATE_BASE_URL:?Set CHECKMATE_BASE_URL in Portainer}"
+      CHECKMATE_GOOGLE_CLIENT_ID: "${CHECKMATE_GOOGLE_CLIENT_ID:-}"
+      CHECKMATE_GOOGLE_CLIENT_SECRET: "${CHECKMATE_GOOGLE_CLIENT_SECRET:-}"
+      CHECKMATE_DEFAULT_TIMEZONE: "${CHECKMATE_DEFAULT_TIMEZONE:-UTC}"
+    volumes:
+      - checkmate-data:/data
+
+volumes:
+  checkmate-data:

@@ -41,6 +41,22 @@ When Google sign-in is configured, use the same email address here as your
 Google account. The first sign-in links that verified identity to the provisioned
 account and opens the seeded data.
 
+## Portainer
+
+Deploy [`portainer-stack.yml`](portainer-stack.yml) as a Portainer stack. The
+stack pulls `ghcr.io/gmoigneu/checkmate`, publishes port `8080`, applies
+database migrations on startup, and persists sqlite data in the
+`checkmate-data` volume.
+
+Set `CHECKMATE_BASE_URL` in Portainer to the public HTTPS origin, for example
+`https://checkmate.example.com`. Google sign-in also requires
+`CHECKMATE_GOOGLE_CLIENT_ID` and `CHECKMATE_GOOGLE_CLIENT_SECRET`. The host port,
+image tag, and timezone can be overridden with `CHECKMATE_PORT`,
+`CHECKMATE_IMAGE_TAG`, and `CHECKMATE_DEFAULT_TIMEZONE`.
+
+If the GHCR package is private, add `ghcr.io` as a Portainer registry using a
+GitHub token with `read:packages` access before deploying the stack.
+
 ## Layout
 
 ```
