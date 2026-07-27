@@ -81,6 +81,11 @@ type Page =
 	| "context"
 	| "project";
 
+type CaptureDefaults = {
+	contextId?: string;
+	projectId?: string;
+};
+
 const navItems: Array<{
 	page: Page;
 	label: string;
@@ -171,6 +176,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [captureOpen, setCaptureOpen] = useState(false);
+	const [captureDefaults, setCaptureDefaults] = useState<CaptureDefaults>({});
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const page = pageForPath(location.pathname);
 	const me = useQuery({ queryKey: ["me"], queryFn: api.me, retry: false });
@@ -194,11 +200,16 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		queryFn: () => api.brief(todayString()),
 		retry: false,
 	});
+	const openCapture = (defaults: CaptureDefaults = {}) => {
+		setCaptureDefaults(defaults);
+		setCaptureOpen(true);
+	};
 
 	useEffect(() => {
 		const handler = (event: KeyboardEvent) => {
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
 				event.preventDefault();
+				setCaptureDefaults({});
 				setCaptureOpen(true);
 			}
 			const target = event.target;
@@ -213,8 +224,10 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				!event.altKey &&
 				!event.shiftKey &&
 				!isTypingTarget
-			)
+			) {
+				setCaptureDefaults({});
 				setCaptureOpen(true);
+			}
 		};
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
@@ -301,6 +314,12 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 					contexts={appContexts}
 					projects={appProjects}
 					pathname={location.pathname}
+					onAddTask={(project) =>
+						openCapture({
+							contextId: project.context_id,
+							projectId: project.id,
+						})
+					}
 				/>
 			);
 		return (
@@ -335,7 +354,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				<button
 					type="button"
 					className="cm-command"
-					onClick={() => setCaptureOpen(true)}
+					onClick={() => openCapture()}
 				>
 					<Search className="size-3.5" />
 					<span>Capture or search</span>
@@ -356,7 +375,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 					brief={brief.data}
 					contexts={appContexts}
 					projects={appProjects}
-					onCapture={() => setCaptureOpen(true)}
+					onCapture={() => openCapture()}
 				/>
 			</aside>
 			<Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -370,7 +389,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 						brief={brief.data}
 						contexts={appContexts}
 						projects={appProjects}
-						onCapture={() => setCaptureOpen(true)}
+						onCapture={() => openCapture()}
 					/>
 				</SheetContent>
 			</Sheet>
@@ -380,21 +399,28 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 			<Button
 				className="fixed right-5 bottom-5 z-20 size-12 rounded-full bg-[var(--accent)] text-white shadow-[var(--shadow-accent)] hover:bg-[var(--accent-hover)] lg:hidden"
 				size="icon"
-				onClick={() => setCaptureOpen(true)}
+				onClick={() => openCapture()}
 				aria-label="Capture a task"
 			>
 				<Plus className="size-6" />
 			</Button>
 			<CaptureDialog
 				open={captureOpen}
-				onOpenChange={setCaptureOpen}
+				onOpenChange={(open) => {
+					setCaptureOpen(open);
+					if (!open) setCaptureDefaults({});
+				}}
 				contexts={appContexts}
+				projects={appProjects}
 				people={appPeople}
+				defaultContextId={captureDefaults.contextId}
+				defaultProjectId={captureDefaults.projectId}
 			/>
 			{detailId ? (
 				<TaskDetail
 					taskId={detailId}
 					contexts={appContexts}
+					projects={appProjects}
 					people={appPeople}
 					onClose={() =>
 						navigate({
@@ -1170,12 +1196,18 @@ function CaptureDialog({
 	open,
 	onOpenChange,
 	contexts,
+	projects,
 	people,
+	defaultContextId,
+	defaultProjectId,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	contexts: Context[];
+	projects: Project[];
 	people: Person[];
+	defaultContextId?: string;
+	defaultProjectId?: string;
 }) {
 	const queryClient = useQueryClient();
 	const [value, setValue] = useState("");
@@ -1184,12 +1216,26 @@ function CaptureDialog({
 		() => parseCapture(value, contexts, people),
 		[value, contexts, people],
 	);
+	const defaultContext = contexts.find(
+		(context) => context.id === defaultContextId,
+	);
+	const selectedContext = parsed.context ?? defaultContext;
+	const selectedProject = projects.find(
+		(project) =>
+			project.id === defaultProjectId &&
+			project.context_id === selectedContext?.id,
+	);
 	const create = useMutation({
 		mutationFn: () =>
 			api.createTask({
 				title: parsed.title || value.trim(),
-				context_id: parsed.context?.id ?? null,
-				status: parsed.person ? "delegated" : parsed.context ? "todo" : "inbox",
+				context_id: selectedContext?.id ?? null,
+				project_id: selectedProject?.id ?? null,
+				status: parsed.person
+					? "delegated"
+					: selectedContext
+						? "todo"
+						: "inbox",
 				delegated_to_id: parsed.person?.id,
 				source: parsed.source,
 				estimate_minutes: parsed.estimate_minutes,
@@ -1198,15 +1244,16 @@ function CaptureDialog({
 				priority: priority || null,
 				capture_method: "form",
 			}),
-		onSuccess: () => {
+		onSuccess: (task) => {
 			setValue("");
 			setPriority("");
 			onOpenChange(false);
-			queryClient.invalidateQueries({ queryKey: ["brief"] });
+			refreshTaskQueries(queryClient, task);
 		},
 	});
 	const chips = [
-		parsed.context && `# ${parsed.context.name}`,
+		selectedContext && `# ${selectedContext.name}`,
+		selectedProject && `Project: ${selectedProject.name}`,
 		parsed.person && `@ ${parsed.person.name}`,
 		parsed.source && `! ${parsed.source}`,
 		parsed.estimate_minutes && formatMinutes(parsed.estimate_minutes),
@@ -1285,7 +1332,7 @@ function CaptureDialog({
 							{create.isPending ? (
 								<LoaderCircle className="size-4 animate-spin" />
 							) : null}
-							Add to {parsed.context?.name ?? "Inbox"}
+							Add to {selectedProject?.name ?? selectedContext?.name ?? "Inbox"}
 							<kbd className="rounded bg-white/15 px-1.5 text-[10px]">↵</kbd>
 						</Button>
 					</div>
@@ -1830,10 +1877,12 @@ function ProjectPage({
 	contexts,
 	projects,
 	pathname,
+	onAddTask,
 }: {
 	contexts: Context[];
 	projects: Project[];
 	pathname: string;
+	onAddTask: (project: Project) => void;
 }) {
 	const navigate = useNavigate();
 	const id = pathname.split("/").pop();
@@ -1897,7 +1946,7 @@ function ProjectPage({
 			</div>
 			<div className="mb-4 flex items-center justify-between">
 				<h2 className="font-display text-2xl">Tasks</h2>
-				<Button variant="outline" size="sm">
+				<Button variant="outline" size="sm" onClick={() => onAddTask(project)}>
 					<Plus className="mr-1 size-4" />
 					Add task
 				</Button>
@@ -1985,11 +2034,13 @@ function SettingsRow({
 function TaskDetail({
 	taskId,
 	contexts,
+	projects,
 	people,
 	onClose,
 }: {
 	taskId: string;
 	contexts: Context[];
+	projects: Project[];
 	people: Person[];
 	onClose: () => void;
 }) {
@@ -2008,6 +2059,11 @@ function TaskDetail({
 		},
 	});
 	const task = taskQuery.data;
+	const availableProjects = task?.context_id
+		? projects
+				.filter((project) => project.context_id === task.context_id)
+				.sort((a, b) => a.name.localeCompare(b.name))
+		: [];
 	useEffect(() => {
 		if (task) setTitle(task.title);
 	}, [task]);
@@ -2108,6 +2164,27 @@ function TaskDetail({
 									{contexts.map((context) => (
 										<option key={context.id} value={context.id}>
 											{context.name}
+										</option>
+									))}
+								</select>
+							</Field>
+							<Field label="Project">
+								<select
+									value={task.project_id ?? ""}
+									onChange={(event) =>
+										update.mutate({
+											project_id: event.target.value || null,
+										})
+									}
+									disabled={!task.context_id || update.isPending}
+									className="max-w-52 bg-transparent text-right text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
+								>
+									<option value="">
+										{task.context_id ? "No project" : "Choose a context first"}
+									</option>
+									{availableProjects.map((project) => (
+										<option key={project.id} value={project.id}>
+											{project.name}
 										</option>
 									))}
 								</select>
