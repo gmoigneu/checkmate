@@ -20,6 +20,7 @@ import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as WaitingRouteImport } from './routes/waiting'
 import { Route as CSlugRouteImport } from './routes/c.$slug'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
+import { Route as SettingsContextsRouteImport } from './routes/settings.contexts'
 import { Route as TTaskIdRouteImport } from './routes/t.$taskId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -77,6 +78,11 @@ const PProjectIdRoute = PProjectIdRouteImport.update({
   path: '/p/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsContextsRoute = SettingsContextsRouteImport.update({
+  id: '/contexts',
+  path: '/contexts',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const TTaskIdRoute = TTaskIdRouteImport.update({
   id: '/t/$taskId',
   path: '/t/$taskId',
@@ -89,12 +95,13 @@ export interface FileRoutesByFullPath {
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/routine': typeof RoutineRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/signin': typeof SigninRoute
   '/tasks': typeof TasksRoute
   '/waiting': typeof WaitingRoute
   '/c/$slug': typeof CSlugRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/settings/contexts': typeof SettingsContextsRoute
   '/t/$taskId': typeof TTaskIdRoute
 }
 export interface FileRoutesByTo {
@@ -103,12 +110,13 @@ export interface FileRoutesByTo {
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/routine': typeof RoutineRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/signin': typeof SigninRoute
   '/tasks': typeof TasksRoute
   '/waiting': typeof WaitingRoute
   '/c/$slug': typeof CSlugRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/settings/contexts': typeof SettingsContextsRoute
   '/t/$taskId': typeof TTaskIdRoute
 }
 export interface FileRoutesById {
@@ -118,12 +126,13 @@ export interface FileRoutesById {
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/routine': typeof RoutineRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/signin': typeof SigninRoute
   '/tasks': typeof TasksRoute
   '/waiting': typeof WaitingRoute
   '/c/$slug': typeof CSlugRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/settings/contexts': typeof SettingsContextsRoute
   '/t/$taskId': typeof TTaskIdRoute
 }
 export interface FileRouteTypes {
@@ -140,6 +149,7 @@ export interface FileRouteTypes {
     | '/waiting'
     | '/c/$slug'
     | '/p/$projectId'
+    | '/settings/contexts'
     | '/t/$taskId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -154,6 +164,7 @@ export interface FileRouteTypes {
     | '/waiting'
     | '/c/$slug'
     | '/p/$projectId'
+    | '/settings/contexts'
     | '/t/$taskId'
   id:
     | '__root__'
@@ -168,6 +179,7 @@ export interface FileRouteTypes {
     | '/waiting'
     | '/c/$slug'
     | '/p/$projectId'
+    | '/settings/contexts'
     | '/t/$taskId'
   fileRoutesById: FileRoutesById
 }
@@ -177,7 +189,7 @@ export interface RootRouteChildren {
   InboxRoute: typeof InboxRoute
   RepeatingRoute: typeof RepeatingRoute
   RoutineRoute: typeof RoutineRoute
-  SettingsRoute: typeof SettingsRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   SigninRoute: typeof SigninRoute
   TasksRoute: typeof TasksRoute
   WaitingRoute: typeof WaitingRoute
@@ -265,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/contexts': {
+      id: '/settings/contexts'
+      path: '/contexts'
+      fullPath: '/settings/contexts'
+      preLoaderRoute: typeof SettingsContextsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/t/$taskId': {
       id: '/t/$taskId'
       path: '/t/$taskId'
@@ -275,13 +294,25 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface SettingsRouteChildren {
+  SettingsContextsRoute: typeof SettingsContextsRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsContextsRoute: SettingsContextsRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BlockedRoute: BlockedRoute,
   InboxRoute: InboxRoute,
   RepeatingRoute: RepeatingRoute,
   RoutineRoute: RoutineRoute,
-  SettingsRoute: SettingsRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   SigninRoute: SigninRoute,
   TasksRoute: TasksRoute,
   WaitingRoute: WaitingRoute,

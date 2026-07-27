@@ -26,7 +26,13 @@ import {
 	Sunrise,
 	X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+	ContextActionsMenu,
+	ContextProjectSettingsPage,
+	NewProjectButton,
+	ProjectActionsMenu,
+} from "@/components/context-project-management";
 import { RoutinePage } from "@/components/routine-page";
 import { TaskStatusMenu } from "@/components/task-status-menu";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +57,7 @@ import type {
 	Context,
 	DaySlot,
 	Person,
+	Project,
 	Task,
 	TaskPriority,
 	TaskStatus,
@@ -66,6 +73,7 @@ type Page =
 	| "repeating"
 	| "blocked"
 	| "settings"
+	| "organization"
 	| "context"
 	| "project";
 
@@ -118,6 +126,28 @@ function briefQueryKey(date: string, contextId?: string) {
 	return ["brief", date, contextId ?? "all"] as const;
 }
 
+const projectOnboardingDismissedKey =
+	"checkmate:onboarding:projects-dismissed:v1";
+const projectOnboardingListeners = new Set<() => void>();
+
+function subscribeProjectOnboarding(onStoreChange: () => void) {
+	projectOnboardingListeners.add(onStoreChange);
+	window.addEventListener("storage", onStoreChange);
+	return () => {
+		projectOnboardingListeners.delete(onStoreChange);
+		window.removeEventListener("storage", onStoreChange);
+	};
+}
+
+function projectOnboardingSnapshot() {
+	return window.localStorage.getItem(projectOnboardingDismissedKey) === "1";
+}
+
+function dismissProjectOnboarding() {
+	window.localStorage.setItem(projectOnboardingDismissedKey, "1");
+	for (const listener of projectOnboardingListeners) listener();
+}
+
 function pageForPath(pathname: string): Page {
 	if (pathname === "/") return "brief";
 	if (pathname.startsWith("/inbox")) return "inbox";
@@ -125,6 +155,7 @@ function pageForPath(pathname: string): Page {
 	if (pathname.startsWith("/routine")) return "routine";
 	if (pathname.startsWith("/repeating")) return "repeating";
 	if (pathname.startsWith("/blocked")) return "blocked";
+	if (pathname.startsWith("/settings/contexts")) return "organization";
 	if (pathname.startsWith("/settings")) return "settings";
 	if (pathname.startsWith("/c/")) return "context";
 	if (pathname.startsWith("/p/")) return "project";
@@ -141,7 +172,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 	const me = useQuery({ queryKey: ["me"], queryFn: api.me, retry: false });
 	const contexts = useQuery({
 		queryKey: ["contexts"],
-		queryFn: api.contexts,
+		queryFn: () => api.contexts(),
 		retry: false,
 	});
 	const projects = useQuery({
@@ -198,7 +229,9 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 	const isLoading = me.isLoading || contexts.isLoading;
 	const invalidate = () =>
 		queryClient.invalidateQueries({ queryKey: ["brief"] });
-	const appContexts = contexts.data?.data ?? [];
+	const appContexts = [...(contexts.data?.data ?? [])].sort(
+		(a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name),
+	);
 	const appProjects = projects.data?.data ?? [];
 	const appPeople = people.data?.data ?? [];
 
@@ -212,6 +245,8 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				<BriefPage
 					brief={loadedBrief}
 					contexts={appContexts}
+					projectCount={appProjects.length}
+					projectsLoaded={projects.isSuccess}
 					onOpenCapture={() => setCaptureOpen(true)}
 				/>
 			);
@@ -247,6 +282,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				/>
 			);
 		if (page === "settings") return <SettingsPage me={me.data} />;
+		if (page === "organization") return <ContextProjectSettingsPage />;
 		if (page === "context")
 			return (
 				<ContextPage
@@ -257,7 +293,11 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 			);
 		if (page === "project")
 			return (
-				<ProjectPage projects={appProjects} pathname={location.pathname} />
+				<ProjectPage
+					contexts={appContexts}
+					projects={appProjects}
+					pathname={location.pathname}
+				/>
 			);
 		return (
 			<TaskListPage
@@ -413,6 +453,17 @@ function Sidebar({
 			</nav>
 			<div className="cm-sidebar-gap" />
 			<nav className="cm-sidebar-group" aria-label="Contexts and projects">
+				<div className="mb-1 flex items-center justify-between px-2">
+					<span className="font-mono text-[10px] tracking-[.08em] text-[var(--text-tertiary)] uppercase">
+						Contexts
+					</span>
+					<Link
+						to="/settings/contexts"
+						className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+					>
+						Manage
+					</Link>
+				</div>
 				{contexts.map((context, index) => (
 					<div key={context.id}>
 						<div className="cm-context-heading">
@@ -440,7 +491,7 @@ function Sidebar({
 							.filter(
 								(project) =>
 									project.context_id === context.id &&
-									project.status !== "archived",
+									(project.status === "active" || project.status === "paused"),
 							)
 							.slice(0, 3)
 							.map((project) => (
@@ -568,14 +619,23 @@ function ContextFilter({
 function BriefPage({
 	brief,
 	contexts,
+	projectCount,
+	projectsLoaded,
 	onOpenCapture,
 }: {
 	brief: Brief;
 	contexts: Context[];
+	projectCount: number;
+	projectsLoaded: boolean;
 	onOpenCapture: () => void;
 }) {
 	const [date, setDate] = useState(brief.date || todayString());
 	const [contextId, setContextId] = useState<string>();
+	const projectPromptDismissed = useSyncExternalStore(
+		subscribeProjectOnboarding,
+		projectOnboardingSnapshot,
+		() => true,
+	);
 	const query = useQuery({
 		queryKey: briefQueryKey(date, contextId),
 		queryFn: () => api.brief(date, contextId),
@@ -682,14 +742,24 @@ function BriefPage({
 							<ChevronRight className="size-4" />
 						</Button>
 					</div>
-					<ContextFilter
-						contexts={contexts}
-						value={contextId}
-						onChange={setContextId}
-						label="Filter the brief by context"
-					/>
+					{contexts.length ? (
+						<ContextFilter
+							contexts={contexts}
+							value={contextId}
+							onChange={setContextId}
+							label="Filter the brief by context"
+						/>
+					) : null}
 				</div>
 			</div>
+			{!contexts.length ? (
+				<OrganizationOnboardingCard stage="context" />
+			) : projectsLoaded && projectCount === 0 && !projectPromptDismissed ? (
+				<OrganizationOnboardingCard
+					stage="project"
+					onDismiss={dismissProjectOnboarding}
+				/>
+			) : null}
 			{!hasCurrentData ? (
 				<LoadingPage />
 			) : perfect ? (
@@ -805,6 +875,44 @@ function BriefPage({
 				</>
 			)}
 		</section>
+	);
+}
+
+function OrganizationOnboardingCard({
+	stage,
+	onDismiss,
+}: {
+	stage: "context" | "project";
+	onDismiss?: () => void;
+}) {
+	const contextStage = stage === "context";
+	return (
+		<div className="mt-6 flex flex-col gap-5 rounded-2xl border border-[var(--terracotta-300)]/50 bg-[var(--sand)] px-5 py-5 sm:flex-row sm:items-center">
+			<div className="min-w-0 flex-1">
+				<p className="font-display text-xl tracking-tight">
+					{contextStage
+						? "Give your work a little structure"
+						: "Group related work into projects"}
+				</p>
+				<p className="mt-1 text-sm leading-6 text-muted-foreground">
+					{contextStage
+						? "Contexts separate the different parts of your life, while your Inbox stays available for quick capture."
+						: "Projects live inside a context and keep related tasks together. They are optional."}
+				</p>
+			</div>
+			<div className="flex shrink-0 items-center gap-2">
+				{onDismiss ? (
+					<Button variant="ghost" onClick={onDismiss}>
+						Not now
+					</Button>
+				) : null}
+				<Button asChild>
+					<Link to="/settings/contexts">
+						{contextStage ? "Set up contexts" : "Add a project"}
+					</Link>
+				</Button>
+			</div>
+		</div>
 	);
 }
 
@@ -1642,9 +1750,10 @@ function ContextPage({
 	pathname,
 }: {
 	contexts: Context[];
-	projects: { id: string; context_id: string; name: string; status: string }[];
+	projects: Project[];
 	pathname: string;
 }) {
+	const navigate = useNavigate();
 	const slug = pathname.split("/").pop();
 	const context = contexts.find((candidate) => candidate.slug === slug);
 	const tasks = useQuery({
@@ -1672,16 +1781,32 @@ function ContextPage({
 	return (
 		<section>
 			<div className="cm-context-card mb-9 rounded-3xl px-7 py-7">
-				<div className="cm-context-kicker flex items-center gap-3 text-sm">
-					<span
-						className="block size-3 rounded-full"
-						style={{ backgroundColor: color }}
+				<div className="flex items-start justify-between gap-4">
+					<div>
+						<div className="cm-context-kicker flex items-center gap-3 text-sm">
+							<span
+								className="block size-3 rounded-full"
+								style={{ backgroundColor: color }}
+							/>
+							<span>One life at a time</span>
+						</div>
+						<h1 className="mt-4 font-display text-4xl tracking-tight">
+							{context.name}
+						</h1>
+					</div>
+					<ContextActionsMenu
+						context={context}
+						onSaved={(saved) => {
+							if (saved.slug !== context.slug) {
+								navigate({
+									to: "/c/$slug",
+									params: { slug: saved.slug },
+								});
+							}
+						}}
+						onRemoved={() => navigate({ to: "/settings/contexts" })}
 					/>
-					<span>One life at a time</span>
 				</div>
-				<h1 className="mt-4 font-display text-4xl tracking-tight">
-					{context.name}
-				</h1>
 				<div className="cm-context-stats mt-7 flex gap-7 pt-4 text-sm">
 					<span>
 						<b className="tabular-nums">
@@ -1702,10 +1827,16 @@ function ContextPage({
 			</div>
 			<div className="mb-6 flex items-center justify-between">
 				<h2 className="font-display text-2xl">Projects</h2>
-				<Button variant="outline" size="sm">
-					<Plus className="mr-1 size-4" />
-					New project
-				</Button>
+				<NewProjectButton
+					contexts={contexts}
+					defaultContextId={context.id}
+					onCreated={(project) =>
+						navigate({
+							to: "/p/$projectId",
+							params: { projectId: project.id },
+						})
+					}
+				/>
 			</div>
 			{projects.filter((project) => project.context_id === context.id)
 				.length ? (
@@ -1755,20 +1886,20 @@ function ContextPage({
 }
 
 function ProjectPage({
+	contexts,
 	projects,
 	pathname,
 }: {
-	projects: {
-		id: string;
-		context_id: string;
-		name: string;
-		description?: string | null;
-		status: string;
-	}[];
+	contexts: Context[];
+	projects: Project[];
 	pathname: string;
 }) {
+	const navigate = useNavigate();
 	const id = pathname.split("/").pop();
 	const project = projects.find((candidate) => candidate.id === id);
+	const owningContext = contexts.find(
+		(context) => context.id === project?.context_id,
+	);
 	const tasks = useQuery({
 		queryKey: ["project-tasks", project?.id],
 		queryFn: () =>
@@ -1791,20 +1922,37 @@ function ProjectPage({
 	return (
 		<section>
 			<Link
-				to="/tasks"
+				to={owningContext ? "/c/$slug" : "/settings/contexts"}
+				params={owningContext ? { slug: owningContext.slug } : undefined}
 				className="mb-5 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
 			>
 				<ChevronLeft className="size-4" />
-				All tasks
+				{owningContext?.name ?? "Contexts & projects"}
 			</Link>
-			<div className="mb-9">
-				<p className="mb-2 text-sm text-muted-foreground">{project.status}</p>
-				<h1 className="font-display text-4xl tracking-tight">{project.name}</h1>
-				{project.description ? (
-					<p className="mt-3 max-w-2xl text-muted-foreground">
-						{project.description}
-					</p>
-				) : null}
+			<div className="mb-9 flex items-start justify-between gap-4">
+				<div>
+					<p className="mb-2 text-sm text-muted-foreground">{project.status}</p>
+					<h1 className="font-display text-4xl tracking-tight">
+						{project.name}
+					</h1>
+					{project.description ? (
+						<p className="mt-3 max-w-2xl text-muted-foreground">
+							{project.description}
+						</p>
+					) : null}
+				</div>
+				<ProjectActionsMenu
+					project={project}
+					contexts={contexts}
+					onRemoved={() =>
+						owningContext
+							? navigate({
+									to: "/c/$slug",
+									params: { slug: owningContext.slug },
+								})
+							: navigate({ to: "/settings/contexts" })
+					}
+				/>
 			</div>
 			<div className="mb-4 flex items-center justify-between">
 				<h2 className="font-display text-2xl">Tasks</h2>
@@ -1849,6 +1997,11 @@ function SettingsPage({
 					label="Account"
 					value={me ? `${me.name} · ${me.email}` : "Loading…"}
 				/>
+				<SettingsRow
+					label="Contexts & projects"
+					value="Organize your work"
+					to="/settings/contexts"
+				/>
 				<SettingsRow label="Timezone" value={me?.timezone ?? "—"} />
 				<SettingsRow label="Appearance" value="System" />
 				<SettingsRow label="Sync" value="Up to date" />
@@ -1857,17 +2010,33 @@ function SettingsPage({
 		</section>
 	);
 }
-function SettingsRow({ label, value }: { label: string; value: string }) {
-	return (
-		<button
-			type="button"
-			className="flex w-full items-center justify-between border-b border-border px-5 py-4 text-left last:border-0 hover:bg-muted/40"
-		>
+function SettingsRow({
+	label,
+	value,
+	to,
+}: {
+	label: string;
+	value: string;
+	to?: "/settings/contexts";
+}) {
+	const content = (
+		<>
 			<span className="font-medium">{label}</span>
 			<span className="flex items-center gap-2 text-sm text-muted-foreground">
 				{value}
 				<ChevronRight className="size-4" />
 			</span>
+		</>
+	);
+	const className =
+		"flex w-full items-center justify-between border-b border-border px-5 py-4 text-left last:border-0 hover:bg-muted/40";
+	return to ? (
+		<Link to={to} className={className}>
+			{content}
+		</Link>
+	) : (
+		<button type="button" className={className}>
+			{content}
 		</button>
 	);
 }
