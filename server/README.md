@@ -43,6 +43,12 @@ account and opens the seeded data.
 
 ## Portainer
 
+Publish the image:
+
+```
+docker buildx build --platform linux/amd64 --tag ghcr.io/gmoigneu/checkmate:latest --push .
+```
+
 Deploy [`portainer-stack.yml`](portainer-stack.yml) as a Portainer stack. The
 stack pulls `ghcr.io/gmoigneu/checkmate`, publishes port `8080`, applies
 database migrations on startup, and persists sqlite data in the
