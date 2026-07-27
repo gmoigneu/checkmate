@@ -42,6 +42,10 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, api } from "@/lib/api";
+import {
+	type BriefDisplayTask,
+	buildBriefSections,
+} from "@/lib/brief-sections";
 import { parseCapture } from "@/lib/capture";
 import {
 	contextPalette,
@@ -668,69 +672,8 @@ function BriefPage({
 	});
 	const data = query.data ?? brief;
 	const hasCurrentData = Boolean(query.data);
-	const canonical = useMemo(() => {
-		const orderedBuckets: Array<[string, Task[]]> = [
-			["overdue", data.overdue],
-			["due today", data.due_today],
-			["planned", data.planned],
-			["in progress", data.in_progress],
-			["waiting on", data.waiting_on.flatMap((group) => group.tasks)],
-			["blocked", data.blocked],
-			["inbox", data.inbox],
-		];
-		const memberships = new Map<string, string[]>();
-		for (const [label, tasks] of orderedBuckets) {
-			for (const task of tasks) {
-				const labels = memberships.get(task.id) ?? [];
-				labels.push(label);
-				memberships.set(task.id, labels);
-			}
-		}
-		const seen = new Set<string>();
-		const take = (tasks: Task[], bucket: string): BriefDisplayTask[] =>
-			tasks
-				.filter((task) => {
-					if (seen.has(task.id)) return false;
-					seen.add(task.id);
-					return true;
-				})
-				.map((task) => ({
-					...task,
-					alsoIn: (memberships.get(task.id) ?? []).filter(
-						(label) => label !== bucket,
-					),
-				}));
-		const overdue = take(data.overdue, "overdue");
-		const dueToday = take(data.due_today, "due today");
-		const planned = take(data.planned, "planned");
-		const inProgress = take(data.in_progress, "in progress");
-		const waitingOn = data.waiting_on
-			.map((group) => ({
-				...group,
-				tasks: take(group.tasks, "waiting on"),
-			}))
-			.filter((group) => group.tasks.length);
-		const blocked = take(data.blocked, "blocked");
-		const inbox = take(data.inbox, "inbox");
-		return {
-			overdue,
-			dueToday,
-			planned,
-			inProgress,
-			waitingOn,
-			blocked,
-			inbox,
-		};
-	}, [data]);
-	const openWork =
-		canonical.overdue.length +
-		canonical.dueToday.length +
-		canonical.planned.length +
-		canonical.inProgress.length +
-		canonical.waitingOn.reduce((sum, group) => sum + group.tasks.length, 0) +
-		canonical.blocked.length +
-		canonical.inbox.length +
-		data.totals.routine_open;
+	const canonical = useMemo(() => buildBriefSections(data), [data]);
+	const openWork = canonical.openTaskCount + data.totals.routine_open;
 	const completedWork = data.totals.completed_today + data.totals.routine_done;
 	const doneRatio =
 		completedWork + openWork
@@ -941,8 +884,6 @@ function OrganizationOnboardingCard({
 		</div>
 	);
 }
-
-type BriefDisplayTask = Task & { alsoIn?: string[] };
 
 const daySlotLabels: Record<DaySlot, string> = {
 	morning: "Morning",
