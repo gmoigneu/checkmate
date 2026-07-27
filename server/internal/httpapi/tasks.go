@@ -21,6 +21,8 @@ type taskCreateRequest struct {
 	Priority        *string `json:"priority"`
 	DueOn           *string `json:"due_on"`
 	PlannedOn       *string `json:"planned_on"`
+	DaySlot         *string `json:"day_slot"`
+	SlotOrder       *int64  `json:"slot_order"`
 	EstimateMinutes *int64  `json:"estimate_minutes"`
 	DelegatedToID   *string `json:"delegated_to_id"`
 
@@ -45,6 +47,8 @@ type taskUpdateRequest struct {
 	Priority        patch.Field[string] `json:"priority"`
 	DueOn           patch.Field[string] `json:"due_on"`
 	PlannedOn       patch.Field[string] `json:"planned_on"`
+	DaySlot         patch.Field[string] `json:"day_slot"`
+	SlotOrder       patch.Field[int64]  `json:"slot_order"`
 	EstimateMinutes patch.Field[int64]  `json:"estimate_minutes"`
 	DelegatedToID   patch.Field[string] `json:"delegated_to_id"`
 	BlockedByID     patch.Field[string] `json:"blocked_by_id"`
@@ -64,6 +68,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		Status:        p.csv("status", model.TaskStatuses),
 		Kind:          p.csv("kind", model.TaskKinds),
 		Priority:      p.csv("priority", model.TaskPriorities),
+		DaySlot:       p.enum("day_slot", model.DaySlots),
 		DelegatedToID: p.str("delegated_to_id"),
 		RecurrenceID:  p.str("recurrence_id"),
 		PlannedOn:     p.date("planned_on"),
@@ -145,7 +150,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 
 	title := requireTitle(v, req.Title)
 
-	checkEnum(v, "status", req.Status, model.TaskStatuses)
+	checkEnum(v, "status", req.Status, model.WritableTaskStatuses)
 	if req.Priority != nil {
 		if *req.Priority == "" {
 			v.add("priority", "cannot be empty")
@@ -156,6 +161,19 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	checkEnum(v, "capture_method", req.CaptureMethod, model.CaptureMethods)
 	checkDate(v, "due_on", req.DueOn)
 	checkDate(v, "planned_on", req.PlannedOn)
+	if req.DaySlot != nil {
+		if *req.DaySlot == "" {
+			v.add("day_slot", "cannot be empty")
+		} else {
+			checkEnum(v, "day_slot", *req.DaySlot, model.DaySlots)
+		}
+		if req.PlannedOn == nil {
+			v.add("day_slot", "requires planned_on")
+		}
+	}
+	if req.SlotOrder != nil && *req.SlotOrder < 0 {
+		v.add("slot_order", "cannot be negative")
+	}
 	checkPositive(v, "estimate_minutes", req.EstimateMinutes)
 	checkURL(v, "reference_url", req.ReferenceURL)
 
@@ -196,6 +214,8 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Priority:        req.Priority,
 		DueOn:           req.DueOn,
 		PlannedOn:       req.PlannedOn,
+		DaySlot:         req.DaySlot,
+		SlotOrder:       req.SlotOrder,
 		EstimateMinutes: req.EstimateMinutes,
 		DelegatedToID:   delegatedToID,
 		BlockedByID:     req.BlockedByID,
@@ -226,12 +246,17 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 	v := newValidationError()
 
 	req.Title = checkTitlePatch(v, req.Title)
-	checkEnumPatch(v, "status", req.Status, model.TaskStatuses)
+	checkEnumPatch(v, "status", req.Status, model.WritableTaskStatuses)
 	if req.Priority.Set && !req.Priority.Null {
 		checkEnumPatch(v, "priority", req.Priority, model.TaskPriorities)
 	}
 	checkDatePatch(v, "due_on", req.DueOn)
 	checkDatePatch(v, "planned_on", req.PlannedOn)
+	checkEnumPatch(v, "day_slot", req.DaySlot, model.DaySlots)
+	checkNonNegativePatch(v, "slot_order", req.SlotOrder)
+	if req.SlotOrder.Set && req.SlotOrder.Null {
+		v.add("slot_order", "cannot be null")
+	}
 	checkPositivePatch(v, "estimate_minutes", req.EstimateMinutes)
 	checkURLPatch(v, "reference_url", req.ReferenceURL)
 
@@ -252,6 +277,8 @@ func (s *Server) handleUpdateTask(w http.ResponseWriter, r *http.Request) {
 		Priority:        req.Priority,
 		DueOn:           req.DueOn,
 		PlannedOn:       req.PlannedOn,
+		DaySlot:         req.DaySlot,
+		SlotOrder:       req.SlotOrder,
 		EstimateMinutes: req.EstimateMinutes,
 		DelegatedToID:   req.DelegatedToID,
 		BlockedByID:     req.BlockedByID,

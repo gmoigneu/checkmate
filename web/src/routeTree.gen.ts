@@ -10,8 +10,10 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BlockedRouteImport } from './routes/blocked'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as RepeatingRouteImport } from './routes/repeating'
+import { Route as RoutineRouteImport } from './routes/routine'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as TasksRouteImport } from './routes/tasks'
@@ -25,6 +27,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BlockedRoute = BlockedRouteImport.update({
+  id: '/blocked',
+  path: '/blocked',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InboxRoute = InboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
@@ -33,6 +40,11 @@ const InboxRoute = InboxRouteImport.update({
 const RepeatingRoute = RepeatingRouteImport.update({
   id: '/repeating',
   path: '/repeating',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RoutineRoute = RoutineRouteImport.update({
+  id: '/routine',
+  path: '/routine',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -73,8 +85,10 @@ const TTaskIdRoute = TTaskIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/blocked': typeof BlockedRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
+  '/routine': typeof RoutineRoute
   '/settings': typeof SettingsRoute
   '/signin': typeof SigninRoute
   '/tasks': typeof TasksRoute
@@ -85,8 +99,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/blocked': typeof BlockedRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
+  '/routine': typeof RoutineRoute
   '/settings': typeof SettingsRoute
   '/signin': typeof SigninRoute
   '/tasks': typeof TasksRoute
@@ -98,8 +114,10 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/blocked': typeof BlockedRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
+  '/routine': typeof RoutineRoute
   '/settings': typeof SettingsRoute
   '/signin': typeof SigninRoute
   '/tasks': typeof TasksRoute
@@ -112,8 +130,10 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/blocked'
     | '/inbox'
     | '/repeating'
+    | '/routine'
     | '/settings'
     | '/signin'
     | '/tasks'
@@ -124,8 +144,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/blocked'
     | '/inbox'
     | '/repeating'
+    | '/routine'
     | '/settings'
     | '/signin'
     | '/tasks'
@@ -136,8 +158,10 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/blocked'
     | '/inbox'
     | '/repeating'
+    | '/routine'
     | '/settings'
     | '/signin'
     | '/tasks'
@@ -149,8 +173,10 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BlockedRoute: typeof BlockedRoute
   InboxRoute: typeof InboxRoute
   RepeatingRoute: typeof RepeatingRoute
+  RoutineRoute: typeof RoutineRoute
   SettingsRoute: typeof SettingsRoute
   SigninRoute: typeof SigninRoute
   TasksRoute: typeof TasksRoute
@@ -169,6 +195,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/blocked': {
+      id: '/blocked'
+      path: '/blocked'
+      fullPath: '/blocked'
+      preLoaderRoute: typeof BlockedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/inbox': {
       id: '/inbox'
       path: '/inbox'
@@ -181,6 +214,13 @@ declare module '@tanstack/react-router' {
       path: '/repeating'
       fullPath: '/repeating'
       preLoaderRoute: typeof RepeatingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/routine': {
+      id: '/routine'
+      path: '/routine'
+      fullPath: '/routine'
+      preLoaderRoute: typeof RoutineRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -237,8 +277,10 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BlockedRoute: BlockedRoute,
   InboxRoute: InboxRoute,
   RepeatingRoute: RepeatingRoute,
+  RoutineRoute: RoutineRoute,
   SettingsRoute: SettingsRoute,
   SigninRoute: SigninRoute,
   TasksRoute: TasksRoute,

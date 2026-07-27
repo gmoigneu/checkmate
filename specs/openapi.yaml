@@ -368,6 +368,9 @@ paths:
         - name: planned_on
           in: query
           schema: { $ref: "#/components/schemas/Date" }
+        - name: day_slot
+          in: query
+          schema: { $ref: "#/components/schemas/DaySlot" }
         - name: planned_before
           in: query
           description: Inclusive.
@@ -631,6 +634,15 @@ paths:
         - $ref: "#/components/parameters/limit"
         - $ref: "#/components/parameters/cursor"
         - $ref: "#/components/parameters/includeDeleted"
+        - name: kind
+          in: query
+          description: |
+            Template collection. Defaults to `classic`, keeping Daily Routine
+            templates out of the classic repeating-task manager.
+          schema:
+            type: string
+            enum: [classic, routine]
+            default: classic
         - name: context_id
           in: query
           schema: { type: string }
@@ -1567,12 +1579,19 @@ components:
 
     TaskStatus:
       type: string
-      enum: [inbox, todo, in_progress, blocked, delegated, done, cancelled]
+      enum: [inbox, todo, in_progress, blocked, delegated, done, cancelled, expired]
       description: |
-        Exhaustive; enforced by a database CHECK. `inbox` means captured but not
-        triaged. `delegated` requires `delegated_to_id`, in both directions.
-        `blocked` does **not** require `blocked_by_id`, because a task can be
-        blocked by something outside Checkmate. `cancelled` is not `done`.
+        Exhaustive API status. `inbox` means captured but not triaged.
+        `delegated` requires `delegated_to_id`, in both directions. `blocked`
+        does **not** require `blocked_by_id`, because a task can be blocked by
+        something outside Checkmate. `cancelled` is not `done`. `expired` is a
+        server-managed terminal state for an unfinished Routine occurrence whose
+        account-local day ended; it cannot be written or reopened.
+
+    WritableTaskStatus:
+      type: string
+      enum: [inbox, todo, in_progress, blocked, delegated, done, cancelled]
+      description: Task statuses accepted on create and update. `expired` is read-only.
 
     TaskPriority:
       type: string
@@ -1583,13 +1602,21 @@ components:
 
     TaskKind:
       type: string
-      enum: [short, long, recurring, delegated, blocked]
+      enum: [short, long, recurring, routine, delegated, blocked]
       readOnly: true
       description: |
         Derived by the server and never stored, so it cannot go stale. Precedence
-        is strict: `recurring` if `recurrence_id` is set, else `delegated` if
+        is strict: `routine` for occurrences of a Daily Routine template,
+        `recurring` for occurrences of a classic recurrence, else `delegated` if
         `delegated_to_id` is set, else `blocked` if `blocked_by_id` is set or the
         status is `blocked`, else `long` if it has a live child, else `short`.
+
+    DaySlot:
+      type: string
+      enum: [morning, midday, afternoon, evening, night]
+      description: |
+        A fixed, time-free section of the day. On a task it requires `planned_on`;
+        the slot qualifies that planned date rather than replacing it.
 
     CaptureMethod:
       type: string
@@ -1617,7 +1644,8 @@ components:
     Task:
       type: object
       required:
-        [id, title, status, kind, capture_method, created_at, updated_at, rev]
+        [id, title, status, kind, capture_method, day_slot, slot_order,
+         expired_at, created_at, updated_at, rev]
       properties:
         id: { type: string }
         context_id:
@@ -1655,6 +1683,14 @@ components:
             The day the user intends to work on it. Distinct from `due_on` — a task
             can be due Friday and planned for Tuesday. Conflating them destroys the
             model.
+        day_slot:
+          oneOf: [{ $ref: "#/components/schemas/DaySlot" }, { type: "null" }]
+          description: Requires `planned_on`. Available to ordinary tasks as well as Routine occurrences.
+        slot_order:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Manual order within `day_slot`.
         estimate_minutes:
           type: ["integer", "null"]
           format: int64
@@ -1676,6 +1712,12 @@ components:
         cancelled_at:
           oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
           readOnly: true
+        expired_at:
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+          readOnly: true
+          description: |
+            Present when a Routine occurrence expired at the account-local day
+            boundary. Such a task has API status `expired` and is immutable.
         created_at: { $ref: "#/components/schemas/Timestamp" }
         updated_at: { $ref: "#/components/schemas/Timestamp" }
         deleted_at:
@@ -1703,7 +1745,7 @@ components:
           $ref: "#/components/schemas/CaptureMethod"
           default: api
         status:
-          $ref: "#/components/schemas/TaskStatus"
+          $ref: "#/components/schemas/WritableTaskStatus"
           description: |
             Defaults to `inbox` without a context, `todo` with one. Setting
             `delegated` requires a delegate.
@@ -1711,6 +1753,10 @@ components:
           oneOf: [{ $ref: "#/components/schemas/TaskPriority" }, { type: "null" }]
         due_on: { oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }] }
         planned_on: { oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }] }
+        day_slot:
+          oneOf: [{ $ref: "#/components/schemas/DaySlot" }, { type: "null" }]
+          description: Requires `planned_on` when set.
+        slot_order: { type: integer, format: int64, minimum: 0, default: 0 }
         estimate_minutes: { type: ["integer", "null"], format: int64, minimum: 1 }
         delegated_to_id: { type: ["string", "null"] }
         delegated_to:
@@ -1740,11 +1786,19 @@ components:
         project_id: { type: ["string", "null"] }
         parent_id: { type: ["string", "null"] }
         source: { type: ["string", "null"] }
-        status: { $ref: "#/components/schemas/TaskStatus" }
+        status: { $ref: "#/components/schemas/WritableTaskStatus" }
         priority:
           oneOf: [{ $ref: "#/components/schemas/TaskPriority" }, { type: "null" }]
         due_on: { oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }] }
         planned_on: { oneOf: [{ $ref: "#/components/schemas/Date" }, { type: "null" }] }
+        day_slot:
+          oneOf: [{ $ref: "#/components/schemas/DaySlot" }, { type: "null" }]
+          description: Clearing `planned_on` also requires clearing this field.
+        slot_order:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Not nullable; sending null is a 422.
         estimate_minutes: { type: ["integer", "null"], format: int64, minimum: 1 }
         delegated_to_id: { type: ["string", "null"] }
         blocked_by_id: { type: ["string", "null"] }
@@ -1901,10 +1955,19 @@ components:
     Recurrence:
       type: object
       required:
-        [id, context_id, title, rrule, timezone, lead_days, starts_on, active,
-         created_at, updated_at, rev]
+        [id, kind, context_id, title, day_slot, slot_order, rrule, timezone,
+         lead_days, starts_on, active, created_at, updated_at, rev]
       properties:
         id: { type: string }
+        kind:
+          type: string
+          enum: [classic, routine]
+          description: |
+            Separates the classic repeating-task collection from Daily Routine.
+        day_slot:
+          oneOf: [{ $ref: "#/components/schemas/DaySlot" }, { type: "null" }]
+          description: Required when `kind` is `routine`.
+        slot_order: { type: integer, format: int64, minimum: 0 }
         context_id: { type: string }
         project_id: { type: ["string", "null"] }
         source: { type: ["string", "null"] }
@@ -1980,6 +2043,14 @@ components:
       required: [context_id, title, rrule, starts_on]
       additionalProperties: false
       properties:
+        kind:
+          type: string
+          enum: [classic, routine]
+          default: classic
+        day_slot:
+          oneOf: [{ $ref: "#/components/schemas/DaySlot" }, { type: "null" }]
+          description: Required for a Routine template.
+        slot_order: { type: integer, format: int64, minimum: 0, default: 0 }
         context_id: { type: string }
         project_id: { type: ["string", "null"] }
         source: { type: ["string", "null"] }
@@ -2004,6 +2075,13 @@ components:
       type: object
       additionalProperties: false
       properties:
+        day_slot:
+          oneOf: [{ $ref: "#/components/schemas/DaySlot" }, { type: "null" }]
+        slot_order:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Not nullable; sending null is a 422.
         context_id: { type: string }
         project_id: { type: ["string", "null"] }
         source: { type: ["string", "null"] }
@@ -2030,7 +2108,8 @@ components:
         **not** capped, so a total may exceed the length of its list.
       required:
         [overdue, due_today, planned, inbox, blocked, waiting_on, in_progress,
-         completed_today, cancelled_today, planned_minutes,
+         completed_today, cancelled_today, routine, routine_open, routine_done,
+         routine_expired, planned_minutes,
          planned_without_estimate]
       properties:
         overdue: { type: integer }
@@ -2043,6 +2122,12 @@ components:
         waiting_on: { type: integer }
         in_progress: { type: integer }
         completed_today: { type: integer }
+        routine:
+          type: integer
+          description: All Routine occurrences for the requested day.
+        routine_open: { type: integer }
+        routine_done: { type: integer }
+        routine_expired: { type: integer }
         cancelled_today:
           type: integer
           description: |
@@ -2071,7 +2156,7 @@ components:
       type: object
       required:
         [date, timezone, overdue, due_today, planned, in_progress, inbox,
-         blocked, waiting_on, completed_today, cancelled_today, totals]
+         blocked, waiting_on, routine, completed_today, cancelled_today, totals]
       properties:
         date: { $ref: "#/components/schemas/Date" }
         timezone:
@@ -2112,6 +2197,12 @@ components:
             person rather than per task. Within a group, `due_on` ascending with
             undated first. Groups are in first-seen order, not sorted.
           items: { $ref: "#/components/schemas/WaitingOnGroup" }
+        routine:
+          type: array
+          description: |
+            Daily Routine occurrences for `date`, kept out of every ordinary task
+            bucket and ordered Morning through Night, then by manual slot order.
+          items: { $ref: "#/components/schemas/Task" }
         completed_today:
           type: array
           description: Sorted `completed_at` descending.

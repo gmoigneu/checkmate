@@ -89,12 +89,13 @@ Enforced by database CHECK constraints. Do not invent a value.
 
 ### Task kind — derived, never stored, never writable
 
-Precedence is strict top to bottom, so a recurring task that is also delegated reads
-as `recurring`:
+Precedence is strict top to bottom, so a Routine occurrence that is also delegated
+still reads as `routine`:
 
 | Kind | Condition |
 | --- | --- |
-| `recurring` | `recurrence_id` is set |
+| `routine` | spawned from a recurrence whose `kind` is `routine` |
+| `recurring` | spawned from a recurrence whose `kind` is `classic` |
 | `delegated` | `delegated_to_id` is set |
 | `blocked` | `blocked_by_id` set **or** status is `blocked` |
 | `long` | has at least one live child |
@@ -175,9 +176,17 @@ chain; if the server still refuses, show it inline on the field.
 
 ### 4.4 Server-managed fields
 
-`completed_at`, `cancelled_at`, `kind`, `rev`, `recurrence_id`, `occurrence_on` are
-not writable — sending them is a **400**, not a silent no-op. Reopening a task
-clears `completed_at` automatically; say so in the undo affordance.
+`completed_at`, `cancelled_at`, `expired_at`, `kind`, `rev`, `recurrence_id`,
+`occurrence_on` are not writable — sending them is a **400**, not a silent no-op.
+Reopening a task clears `completed_at` automatically; say so in the undo affordance.
+An expired Routine occurrence cannot be reopened, edited, or deleted.
+
+### 4.5 Day slots qualify a planned date
+
+`day_slot` is one of `morning`, `midday`, `afternoon`, `evening`, `night`.
+It is available on ordinary tasks as well as Routine occurrences and requires
+`planned_on`; it organizes that date without introducing a clock time.
+`slot_order` is a non-negative integer used for manual order within a slot.
 
 A spawned occurrence cannot be detached from its series.
 
@@ -545,7 +554,7 @@ queue — it implies a flush that does not exist.
 request and echoed back. Dates are stored without a zone, so using the server's
 clock would hand someone in Paris the wrong day for the first hours of it.
 
-Eight buckets, each sorted server-side:
+Ten buckets, each sorted server-side:
 
 | Bucket | Contents | Sort |
 | --- | --- | --- |
@@ -556,6 +565,7 @@ Eight buckets, each sorted server-side:
 | `inbox` | status `inbox` | `created_at` ASC — oldest first |
 | `blocked` | status `blocked` | `updated_at` ASC |
 | `waiting_on` | status `delegated`, **grouped by person** | `due_on` ASC within a person, undated first; groups in first-seen order |
+| `routine` | Routine occurrences for `date`; excluded from every ordinary bucket | Morning → Night, then `slot_order` ASC |
 | `completed_today` | done, completed on `date` | `completed_at` DESC |
 | `cancelled_today` | cancelled on `date` | `cancelled_at` DESC |
 
@@ -576,6 +586,9 @@ Five behaviours a client must handle:
 5. **`due_on` and `planned_on` are different things.** Due is the deadline in the
    world; planned is the day the user intends to work on it. A task can be due
    Friday and planned Tuesday. Conflating them destroys the model.
+6. **Routine progress is separate.** `totals.routine`, `routine_open`,
+   `routine_done`, and `routine_expired` are exact. Routine occurrences contribute
+   to the overall progress UI but never inflate ordinary due/planned/overdue totals.
 
 ---
 
@@ -622,6 +635,25 @@ Properties the UI must reflect:
 - **`timezone` is per-series**, because `occurrence_on` is a plain date.
 - `next_occurrence_on` and `last_spawned_on` are read-only server state.
 
+### 10.1 Daily Routine
+
+Daily Routine is a separate recurrence collection, selected with
+`GET /v1/recurrences?kind=routine`; omitting `kind` returns only classic repeating
+templates. Each Routine template has its own weekday rule, required context,
+optional project, fixed `day_slot`, and `slot_order`. Its timezone always follows
+the user's current account timezone.
+
+Routine behavior differs deliberately from classic recurrence:
+
+- it materializes only today's applicable occurrence, with both `due_on` and
+  `planned_on` set to the occurrence date;
+- it never backfills missed days;
+- unfinished occurrences become immutable `expired` history at local midnight and
+  never appear as overdue;
+- editing a template reconciles today's open occurrence while preserving completed
+  and expired history;
+- pausing or deleting a template expires today's still-open occurrence.
+
 ---
 
 ## 11. Not available
@@ -637,8 +669,8 @@ No server support. A design needing one of these must be flagged, not drawn.
   nothing can notify you while the app has not synced recently.
 - **Saved filters server-side** — client-local only, so per-device and unsynced.
 - **Sub-projects or nesting** — a project has one context and no children.
-- **Persisted manual ordering of tasks** — only *contexts* have `sort_order`. Tasks
-  have none, so drag-to-reorder is not persistable.
+- **General persisted manual ordering of tasks** — only day-slotted tasks have
+  `slot_order`; arbitrary task lists otherwise have no persistable drag order.
 - **Time tracking** — only `estimate_minutes`.
 - **Bulk edit endpoint** — no batch API. Bulk actions fan out to N PATCH calls;
   design the partial-failure state ("14 of 16 moved") rather than assuming

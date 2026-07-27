@@ -4,24 +4,28 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/nls/checkmate/server/internal/id"
 	"github.com/nls/checkmate/server/internal/model"
 	"github.com/nls/checkmate/server/internal/patch"
 )
 
-const recurrenceColumns = `id, context_id, project_id, source_key, title, details,
-	rrule, timezone, estimate_minutes, delegated_to_id, lead_days, starts_on,
+const recurrenceColumns = `id, kind, context_id, project_id, source_key, title, details,
+	day_slot, slot_order, rrule, timezone, estimate_minutes, delegated_to_id, lead_days, starts_on,
 	ends_on, next_occurrence_on, last_spawned_on, active, completed_at,
 	created_at, updated_at, deleted_at, rev`
 
 // RecurrenceCreate is the input for creating a recurrence template.
 type RecurrenceCreate struct {
+	Kind            string
 	ContextID       string
 	ProjectID       *string
 	Source          *string
 	Title           string
 	Details         *string
+	DaySlot         *string
+	SlotOrder       *int64
 	RRule           string
 	Timezone        string
 	EstimateMinutes *int64
@@ -39,6 +43,8 @@ type RecurrenceUpdate struct {
 	Source          patch.Field[string]
 	Title           patch.Field[string]
 	Details         patch.Field[string]
+	DaySlot         patch.Field[string]
+	SlotOrder       patch.Field[int64]
 	RRule           patch.Field[string]
 	Timezone        patch.Field[string]
 	EstimateMinutes patch.Field[int64]
@@ -55,6 +61,7 @@ type RecurrenceFilter struct {
 
 	ContextID string
 	Active    *bool
+	Kind      string
 
 	// State filters on the derived three-way state. Validate against
 	// model.RecurrenceStates before calling.
@@ -72,6 +79,10 @@ func (s *Store) ListRecurrences(ctx context.Context, userID string, f Recurrence
 
 	if f.ContextID != "" {
 		c.add("context_id = ?", f.ContextID)
+	}
+
+	if f.Kind != "" {
+		c.add("kind = ?", f.Kind)
 	}
 
 	if f.Active != nil {
@@ -135,9 +146,19 @@ func (s *Store) GetRecurrence(ctx context.Context, userID, recurrenceID string) 
 func (s *Store) CreateRecurrence(ctx context.Context, userID string, in RecurrenceCreate) (model.Recurrence, error) {
 	newID := id.New()
 
+	kind := in.Kind
+	if kind == "" {
+		kind = model.RecurrenceClassic
+	}
+
 	timezone := in.Timezone
 	if timezone == "" {
 		timezone = "UTC"
+	}
+
+	var slotOrder int64
+	if in.SlotOrder != nil {
+		slotOrder = *in.SlotOrder
 	}
 
 	var leadDays int64
@@ -148,6 +169,16 @@ func (s *Store) CreateRecurrence(ctx context.Context, userID string, in Recurren
 	active := int64(1)
 	if in.Active != nil {
 		active = boolToInt(*in.Active)
+	}
+
+	if kind == model.RecurrenceRoutine && in.DaySlot == nil {
+		return model.Recurrence{}, &ConflictError{Field: "day_slot", Detail: "is required for a routine"}
+	}
+	if kind == model.RecurrenceRoutine && !validRoutineRRule(in.RRule) {
+		return model.Recurrence{}, &ConflictError{
+			Field:  "rrule",
+			Detail: "a routine must select weekdays with FREQ=DAILY or FREQ=WEEKLY;BYDAY=…",
+		}
 	}
 
 	err := s.tx(ctx, func(tx *sql.Tx) error {
@@ -169,13 +200,13 @@ func (s *Store) CreateRecurrence(ctx context.Context, userID string, in Recurren
 		}
 
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO recurrences (id, user_id, context_id, project_id, source_key, title,
-				details, rrule, timezone, estimate_minutes, delegated_to_id, lead_days,
-				starts_on, ends_on, next_occurrence_on, active)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			newID, userID, in.ContextID, in.ProjectID, in.Source, in.Title,
-			in.Details, in.RRule, timezone, in.EstimateMinutes, in.DelegatedToID, leadDays,
-			in.StartsOn, in.EndsOn, in.StartsOn, active,
+			`INSERT INTO recurrences (id, user_id, kind, context_id, project_id, source_key, title,
+				details, day_slot, slot_order, rrule, timezone, estimate_minutes, delegated_to_id,
+				lead_days, starts_on, ends_on, next_occurrence_on, active)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			newID, userID, kind, in.ContextID, in.ProjectID, in.Source, in.Title,
+			in.Details, in.DaySlot, slotOrder, in.RRule, timezone, in.EstimateMinutes,
+			in.DelegatedToID, leadDays, in.StartsOn, in.EndsOn, in.StartsOn, active,
 		)
 		if err != nil {
 			return fmt.Errorf("store: insert recurrence: %w", err)
@@ -198,10 +229,38 @@ func (s *Store) UpdateRecurrence(ctx context.Context, userID, recurrenceID strin
 			return err
 		}
 
+		nextSlot := current.DaySlot
+		if in.DaySlot.Set {
+			if in.DaySlot.Null {
+				nextSlot = nil
+			} else {
+				nextSlot = &in.DaySlot.Value
+			}
+		}
+
+		if current.Kind == model.RecurrenceRoutine && nextSlot == nil {
+			return &ConflictError{Field: "day_slot", Detail: "is required for a routine"}
+		}
+		if current.Kind == model.RecurrenceRoutine && in.RRule.Present() &&
+			!validRoutineRRule(in.RRule.Value) {
+			return &ConflictError{
+				Field:  "rrule",
+				Detail: "a routine must select weekdays with FREQ=DAILY or FREQ=WEEKLY;BYDAY=…",
+			}
+		}
+
+		if current.Kind == model.RecurrenceRoutine && in.Active.Present() && !in.Active.Value {
+			if err := expireOpenRoutineOccurrencesTx(ctx, tx, userID, recurrenceID); err != nil {
+				return err
+			}
+		}
+
 		b := &updateBuilder{}
 
 		applyField(b, "title", in.Title)
 		applyField(b, "details", in.Details)
+		applyField(b, "day_slot", in.DaySlot)
+		applyField(b, "slot_order", in.SlotOrder)
 		applyField(b, "rrule", in.RRule)
 		applyField(b, "timezone", in.Timezone)
 		applyField(b, "estimate_minutes", in.EstimateMinutes)
@@ -284,18 +343,59 @@ func (s *Store) UpdateRecurrence(ctx context.Context, userID, recurrenceID strin
 	return s.GetRecurrence(ctx, userID, recurrenceID)
 }
 
+// validRoutineRRule keeps the Routine editor's promise: each item selects the
+// weekdays it applies to, rather than exposing the full classic RRULE language.
+func validRoutineRRule(value string) bool {
+	rule := strings.ToUpper(strings.TrimSpace(value))
+	if rule == "FREQ=DAILY" {
+		return true
+	}
+
+	const prefix = "FREQ=WEEKLY;BYDAY="
+	if !strings.HasPrefix(rule, prefix) {
+		return false
+	}
+
+	days := strings.Split(strings.TrimPrefix(rule, prefix), ",")
+	if len(days) == 0 || len(days) > 7 {
+		return false
+	}
+
+	seen := map[string]bool{}
+	for _, day := range days {
+		switch day {
+		case "MO", "TU", "WE", "TH", "FR", "SA", "SU":
+			if seen[day] {
+				return false
+			}
+			seen[day] = true
+		default:
+			return false
+		}
+	}
+
+	return true
+}
+
 // DeleteRecurrence tombstones a template.
 //
 // Occurrences already spawned from it are left alone: they are real tasks with
-// real history, and deleting a series should not rewrite the past. They keep
-// reporting as kind "recurring" via their recurrence_id.
+// real history, and deleting a series should not rewrite the past. Their derived
+// kind remains available through the tombstoned template row.
 func (s *Store) DeleteRecurrence(ctx context.Context, userID, recurrenceID string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		if err := assertRowOwned(ctx, tx, "recurrences", "id", recurrenceID, userID); err != nil {
-			return ErrNotFound
+		current, err := getRecurrenceTx(ctx, tx, userID, recurrenceID)
+		if err != nil {
+			return err
 		}
 
-		_, err := tx.ExecContext(ctx,
+		if current.Kind == model.RecurrenceRoutine {
+			if err := expireOpenRoutineOccurrencesTx(ctx, tx, userID, recurrenceID); err != nil {
+				return err
+			}
+		}
+
+		_, err = tx.ExecContext(ctx,
 			`UPDATE recurrences SET deleted_at = `+nowExpr+`, active = 0, updated_at = `+nowExpr+`
 			 WHERE user_id = ? AND id = ? AND deleted_at IS NULL`,
 			userID, recurrenceID,
@@ -361,8 +461,8 @@ func scanRecurrence(sc scanner) (model.Recurrence, error) {
 		active int64
 	)
 
-	err := sc.Scan(&v.ID, &v.ContextID, &v.ProjectID, &v.Source, &v.Title, &v.Details,
-		&v.RRule, &v.Timezone, &v.EstimateMinutes, &v.DelegatedToID, &v.LeadDays,
+	err := sc.Scan(&v.ID, &v.Kind, &v.ContextID, &v.ProjectID, &v.Source, &v.Title, &v.Details,
+		&v.DaySlot, &v.SlotOrder, &v.RRule, &v.Timezone, &v.EstimateMinutes, &v.DelegatedToID, &v.LeadDays,
 		&v.StartsOn, &v.EndsOn, &v.NextOccurrenceOn, &v.LastSpawnedOn, &active,
 		&v.CompletedAt,
 		&v.CreatedAt, &v.UpdatedAt, &v.DeletedAt, &v.Rev)

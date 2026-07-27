@@ -15,6 +15,32 @@ curl -s localhost:8080/healthz
 With `-token`, `user create` prints an API token once. Only the token's SHA-256
 is stored, so copy it there and then.
 
+### Local fixtures
+
+Reset the local database and create representative data for the account you use
+to sign in:
+
+```sh
+make fixtures ACCOUNT=g@moigneu.com
+```
+
+The command is development-only and destructive: it clears all local users,
+sessions, tokens, OAuth clients, and task data before provisioning the supplied
+account. It then prints a new API token and loads contexts, projects in every
+lifecycle state, people, active/paused/finished recurrences, every task
+kind/status/priority/source/capture method, and completed or cancelled history
+spread across the previous three calendar months. Dates are relative to the day
+the command runs, so overdue, today, and upcoming views stay useful.
+
+```sh
+go run ./cmd/checkmate fixtures load g@moigneu.com
+go run ./cmd/checkmate fixtures load -name "G/" -timezone Europe/Paris g@moigneu.com
+```
+
+When Google sign-in is configured, use the same email address here as your
+Google account. The first sign-in links that verified identity to the provisioned
+account and opens the seeded data.
+
 ## Portainer
 
 Deploy [`portainer-stack.yml`](portainer-stack.yml) as a Portainer stack. The
@@ -77,19 +103,19 @@ Tables: `users`, `api_tokens`, `sources`, `contexts`, `projects`, `people`,
 
 ### Task kind is derived, not stored
 
-The four task types in the brief all fall out of columns that already exist, so
+The task types in the brief all fall out of columns that already exist, so
 there is no `type` column to go stale when a subtask is added:
 
 | Kind | Condition |
 | --- | --- |
-| `recurring` | `recurrence_id IS NOT NULL` |
+| `routine` | recurrence kind is `routine` |
+| `recurring` | recurrence kind is `classic` |
 | `delegated` | `delegated_to_id IS NOT NULL` |
 | `blocked` | `blocked_by_id IS NOT NULL OR status = 'blocked'` |
 | `long` | has at least one live child via `parent_id` |
 | `short` | none of the above |
 
-Read them off the `tasks_with_kind` view. Precedence is top to bottom: a
-recurring task that is also delegated reads as recurring.
+Read them off the `tasks_with_kind` view. Precedence is top to bottom.
 
 ### Recurrence
 
@@ -123,6 +149,15 @@ Four properties worth knowing:
 - **Timezone-correct.** Occurrence dates are computed in the template's own zone,
   because `occurrence_on` is a plain date and the same instant is a different day
   either side of the date line.
+
+Daily Routine templates use the same spawner but are a separate collection
+(`kind = routine`). Each item selects weekdays and one fixed slot: Morning,
+Midday, Afternoon, Evening, or Night. Routines follow the user's current account
+timezone, create only today's applicable task, set both `due_on` and `planned_on`,
+and never backfill. An unfinished occurrence expires at the account-local midnight;
+the API exposes it as the immutable terminal status `expired`, and it never becomes
+overdue. Editing a template reconciles today's open instance without rewriting
+completed or expired history.
 
 A series that reaches `ends_on`, or exhausts a `COUNT=`, is deactivated rather
 than deleted: the tasks it already spawned are real history and a deleted template
@@ -190,6 +225,10 @@ received and never ask again. `TestSyncPaginationLosesNothing` pins this.
 actually gets made. `completed_today` is there so the day shows progress and not
 only debt.
 
+Routine occurrences have their own `routine` bucket and exact open/done/expired
+totals. They are excluded from all ordinary task buckets and ordered Morning
+through Night, then by their persisted `slot_order`.
+
 `totals` includes `planned_minutes` and `planned_without_estimate`, so an
 over-committed day is visible before it starts and the estimate is not read as
 more complete than it is. Lists are capped at 100 but the totals are not.
@@ -206,6 +245,8 @@ it.
 - timestamps are RFC3339 UTC text (`2026-07-25T14:03:11.482Z`)
 - calendar dates (`due_on`, `planned_on`, `occurrence_on`) are plain
   `YYYY-MM-DD` with no timezone, guarded by a `GLOB` CHECK
+- `day_slot` qualifies `planned_on` with one of five fixed, time-free sections;
+  `slot_order` persists manual ordering inside one section
 - estimates are stored in whole minutes (`estimate_minutes`)
 
 ## Configuration

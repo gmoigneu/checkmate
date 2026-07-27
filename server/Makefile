@@ -5,7 +5,7 @@ LDFLAGS  := -X main.version=$(VERSION)
 
 export CHECKMATE_DB_PATH ?= ./data/checkmate.db
 
-.PHONY: help build run test test-race lint tidy migrate-up migrate-down migrate-status clean web
+.PHONY: help build run test test-race lint tidy migrate-up migrate-down migrate-status fixtures clean web
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -40,6 +40,10 @@ migrate-down: ## Roll back the last migration
 
 migrate-status: ## Show migration state
 	go run $(PKG) migrate status
+
+fixtures: ## Reset local data and load fixtures for ACCOUNT
+	$(if $(strip $(ACCOUNT)),,$(error ACCOUNT is required; usage: make fixtures ACCOUNT=you@example.com))
+	go run $(PKG) fixtures load "$(ACCOUNT)"
 
 clean: ## Remove build output
 	rm -rf bin

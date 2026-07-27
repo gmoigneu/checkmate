@@ -40,23 +40,21 @@ var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 // ErrEmailTaken is returned when an account already exists for that address.
 var ErrEmailTaken = errors.New("account: email already registered")
 
+// ValidateUserInput applies CreateUser's normalization and validation without
+// writing anything. Destructive maintenance commands use this before resetting
+// data so an invalid replacement account cannot leave an empty database.
+func ValidateUserInput(email, name, timezone string) error {
+	_, _, _, err := normalizeUserInput(email, name, timezone)
+
+	return err
+}
+
 // CreateUser inserts a user in one transaction. timezone may be empty, in which
 // case UTC is used.
 func CreateUser(ctx context.Context, db *sql.DB, email, name, timezone string) (User, error) {
-	email = strings.TrimSpace(email)
-	name = strings.TrimSpace(name)
-	timezone = strings.TrimSpace(timezone)
-
-	if !emailRe.MatchString(email) {
-		return User{}, fmt.Errorf("account: %q is not a valid email", email)
-	}
-
-	if name == "" {
-		return User{}, errors.New("account: name is required")
-	}
-
-	if timezone == "" {
-		timezone = "UTC"
+	email, name, timezone, err := normalizeUserInput(email, name, timezone)
+	if err != nil {
+		return User{}, err
 	}
 
 	u := User{ID: id.New(), Email: email, Name: name, Timezone: timezone}
@@ -90,6 +88,26 @@ func CreateUser(ctx context.Context, db *sql.DB, email, name, timezone string) (
 	}
 
 	return u, nil
+}
+
+func normalizeUserInput(email, name, timezone string) (string, string, string, error) {
+	email = strings.TrimSpace(email)
+	name = strings.TrimSpace(name)
+	timezone = strings.TrimSpace(timezone)
+
+	if !emailRe.MatchString(email) {
+		return "", "", "", fmt.Errorf("account: %q is not a valid email", email)
+	}
+
+	if name == "" {
+		return "", "", "", errors.New("account: name is required")
+	}
+
+	if timezone == "" {
+		timezone = "UTC"
+	}
+
+	return email, name, timezone, nil
 }
 
 // CreateToken issues a non-expiring API token for userID and returns the

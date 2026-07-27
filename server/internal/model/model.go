@@ -59,11 +59,14 @@ type Person struct {
 // Recurrence is the template a repeating task is spawned from.
 type Recurrence struct {
 	ID               string  `json:"id"`
+	Kind             string  `json:"kind"`
 	ContextID        string  `json:"context_id"`
 	ProjectID        *string `json:"project_id"`
 	Source           *string `json:"source"`
 	Title            string  `json:"title"`
 	Details          *string `json:"details"`
+	DaySlot          *string `json:"day_slot"`
+	SlotOrder        int64   `json:"slot_order"`
 	RRule            string  `json:"rrule"`
 	Timezone         string  `json:"timezone"`
 	EstimateMinutes  *int64  `json:"estimate_minutes"`
@@ -109,6 +112,8 @@ type Task struct {
 	Priority        *string `json:"priority"`
 	DueOn           *string `json:"due_on"`
 	PlannedOn       *string `json:"planned_on"`
+	DaySlot         *string `json:"day_slot"`
+	SlotOrder       int64   `json:"slot_order"`
 	EstimateMinutes *int64  `json:"estimate_minutes"`
 	DelegatedToID   *string `json:"delegated_to_id"`
 	BlockedByID     *string `json:"blocked_by_id"`
@@ -120,6 +125,7 @@ type Task struct {
 
 	CompletedAt *string `json:"completed_at"`
 	CancelledAt *string `json:"cancelled_at"`
+	ExpiredAt   *string `json:"expired_at"`
 	CreatedAt   string  `json:"created_at"`
 	UpdatedAt   string  `json:"updated_at"`
 	DeletedAt   *string `json:"deleted_at,omitempty"`
@@ -135,10 +141,20 @@ const (
 	StatusDelegated  = "delegated"
 	StatusDone       = "done"
 	StatusCancelled  = "cancelled"
+	StatusExpired    = "expired"
 )
 
-// TaskStatuses is every legal task status, matching the CHECK constraint.
+// TaskStatuses is every status exposed by the API. Expired is normalized from
+// expired_at while the persisted status remains cancelled.
 var TaskStatuses = []string{
+	StatusInbox, StatusTodo, StatusInProgress, StatusBlocked,
+	StatusDelegated, StatusDone, StatusCancelled,
+	StatusExpired,
+}
+
+// WritableTaskStatuses excludes expired, which is a terminal outcome written
+// only by the routine lifecycle.
+var WritableTaskStatuses = []string{
 	StatusInbox, StatusTodo, StatusInProgress, StatusBlocked,
 	StatusDelegated, StatusDone, StatusCancelled,
 }
@@ -167,7 +183,27 @@ var CaptureMethods = []string{
 var ProjectStatuses = []string{"active", "paused", "done", "archived"}
 
 // TaskKinds is every value the tasks_with_kind view can derive.
-var TaskKinds = []string{"short", "long", "recurring", "delegated", "blocked"}
+var TaskKinds = []string{"short", "long", "recurring", "routine", "delegated", "blocked"}
+
+// Day slots are fixed scheduling buckets in their display order.
+const (
+	DaySlotMorning   = "morning"
+	DaySlotMidday    = "midday"
+	DaySlotAfternoon = "afternoon"
+	DaySlotEvening   = "evening"
+	DaySlotNight     = "night"
+)
+
+var DaySlots = []string{
+	DaySlotMorning, DaySlotMidday, DaySlotAfternoon, DaySlotEvening, DaySlotNight,
+}
+
+const (
+	RecurrenceClassic = "classic"
+	RecurrenceRoutine = "routine"
+)
+
+var RecurrenceKinds = []string{RecurrenceClassic, RecurrenceRoutine}
 
 // Recurrence states, derived rather than stored.
 const (

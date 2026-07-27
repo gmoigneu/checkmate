@@ -16,12 +16,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/nls/checkmate/server/internal/account"
 	"github.com/nls/checkmate/server/internal/config"
 	"github.com/nls/checkmate/server/internal/database"
+	"github.com/nls/checkmate/server/internal/fixtures"
 	"github.com/nls/checkmate/server/internal/httpapi"
 	"github.com/nls/checkmate/server/internal/login"
 	"github.com/nls/checkmate/server/internal/mcpserver"
@@ -45,6 +47,7 @@ Usage:
   checkmate migrate status             Show migration state
   checkmate user create -email E -name N [-timezone TZ]
   checkmate token create -email E -name N [-scopes "read write"]
+  checkmate fixtures load [-name N] [-timezone TZ] EMAIL
   checkmate recurrence spawn           Materialize due recurring tasks once
   checkmate version                    Print the build version
 
@@ -104,6 +107,8 @@ func run(args []string) error {
 		return userCmd(ctx, cfg, log, args[1:])
 	case "token":
 		return tokenCmd(ctx, cfg, log, args[1:])
+	case "fixtures":
+		return fixturesCmd(ctx, cfg, log, args[1:])
 	case "recurrence":
 		return recurrenceCmd(ctx, cfg, log, args[1:])
 	case "version":
@@ -398,6 +403,10 @@ func userCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []st
 		return err
 	}
 
+	if _, err := time.LoadLocation(*timezone); err != nil {
+		return fmt.Errorf("load fixture timezone %q: %w", *timezone, err)
+	}
+
 	db, err := open(ctx, cfg, log, cfg.AutoMigrate)
 	if err != nil {
 		return err
@@ -454,6 +463,91 @@ func tokenCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []s
 	}
 
 	printToken(*name, secret)
+
+	return nil
+}
+
+func fixturesCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args []string) error {
+	if len(args) == 0 || args[0] != "load" {
+		return errors.New("fixtures needs a subcommand: load")
+	}
+
+	fs := flag.NewFlagSet("fixtures load", flag.ContinueOnError)
+	name := fs.String("name", "", "fixture account display name (default: email local part)")
+	timezone := fs.String("timezone", "Europe/Paris", "IANA timezone for relative fixture dates")
+	tokenName := fs.String("token", "Local fixtures", "API token name; empty disables token creation")
+
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+
+	if fs.NArg() != 1 {
+		return errors.New("fixtures load requires exactly one account email")
+	}
+
+	email := strings.TrimSpace(fs.Arg(0))
+	displayName := strings.TrimSpace(*name)
+	if displayName == "" {
+		displayName, _, _ = strings.Cut(email, "@")
+	}
+
+	if _, err := time.LoadLocation(*timezone); err != nil {
+		return fmt.Errorf("load fixture timezone %q: %w", *timezone, err)
+	}
+
+	if err := account.ValidateUserInput(email, displayName, *timezone); err != nil {
+		return err
+	}
+
+	if !cfg.Development() {
+		return errors.New("fixtures can only be loaded in the development environment")
+	}
+
+	db, err := open(ctx, cfg, log, true)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := fixtures.Reset(ctx, db); err != nil {
+		return err
+	}
+
+	user, err := account.CreateUser(ctx, db, email, displayName, *timezone)
+	if err != nil {
+		return err
+	}
+
+	keepUser := false
+	defer func() {
+		if !keepUser {
+			_, _ = db.ExecContext(context.Background(), `DELETE FROM users WHERE id = ?`, user.ID)
+		}
+	}()
+
+	summary, err := fixtures.Load(ctx, db, user.ID, fixtures.Options{Timezone: user.Timezone})
+	if err != nil {
+		return err
+	}
+
+	var secret string
+	if *tokenName != "" {
+		secret, err = account.CreateToken(ctx, db, user.ID, *tokenName, "")
+		if err != nil {
+			return err
+		}
+	}
+
+	keepUser = true
+	fmt.Printf(
+		"loaded fixtures for %s <%s>: contexts=%d projects=%d people=%d recurrences=%d tasks=%d history_from=%s\n",
+		user.Name, user.Email, summary.Contexts, summary.Projects, summary.People,
+		summary.Recurrences, summary.Tasks, summary.HistoryFrom,
+	)
+
+	if secret != "" {
+		printToken(*tokenName, secret)
+	}
 
 	return nil
 }

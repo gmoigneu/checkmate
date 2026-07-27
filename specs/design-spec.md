@@ -75,8 +75,8 @@ Source (fixed lookup of 6)
 **Context** — `id, name, slug, color?, sort_order, archived_at?, created_at, updated_at, rev`
 **Project** — `id, context_id (required), name, description?, status, …`
 **Person** — `id, name, email?, context_id?, notes?, …`
-**Recurrence** — `id, context_id (required), project_id?, source?, title, details?, rrule, timezone, estimate_minutes?, delegated_to_id?, lead_days, starts_on, ends_on?, next_occurrence_on?, last_spawned_on?, active, …`
-**Task** — `id, context_id?, project_id?, parent_id?, recurrence_id?, occurrence_on?, source?, capture_method, title, details?, status, priority?, due_on?, planned_on?, estimate_minutes?, delegated_to_id?, blocked_by_id?, reference_url?, reference_label?, kind (derived), completed_at?, cancelled_at?, …`
+**Recurrence** — `id, kind (classic|routine), context_id (required), project_id?, source?, title, details?, day_slot?, slot_order, rrule, timezone, estimate_minutes?, delegated_to_id?, lead_days, starts_on, ends_on?, next_occurrence_on?, last_spawned_on?, active, …`
+**Task** — `id, context_id?, project_id?, parent_id?, recurrence_id?, occurrence_on?, source?, capture_method, title, details?, status, priority?, due_on?, planned_on?, day_slot?, slot_order, estimate_minutes?, delegated_to_id?, blocked_by_id?, reference_url?, reference_label?, kind (derived), completed_at?, cancelled_at?, expired_at?, …`
 
 `?` = nullable. Every entity also carries `deleted_at?` (tombstone) and `rev` (sync counter).
 
@@ -84,7 +84,7 @@ Source (fixed lookup of 6)
 
 These are enforced by database CHECK constraints. **Do not invent a value, a status, or a field.**
 
-**Task status** (7, exhaustive):
+**Task status** (8, exhaustive; `expired` is server-managed and read-only):
 
 | Value | User-facing label | Meaning |
 |---|---|---|
@@ -95,16 +95,18 @@ These are enforced by database CHECK constraints. **Do not invent a value, a sta
 | `delegated` | Waiting on *{name}* | **Requires `delegated_to_id`.** Enforced both ways: you cannot set this status without a person, and you cannot clear the person while the status holds. |
 | `done` | Done | `completed_at` set by the server. |
 | `cancelled` | Cancelled | `cancelled_at` set by the server. Not the same as deleted. |
+| `expired` | Expired | An unfinished Daily Routine occurrence whose account-local day ended. Immutable and never overdue. |
 
 **Task priority** (optional): `urgent` · `high` · `medium` · `low`. It is an
 importance rank, separate from status, deadline, and planned date. Null means the
 task has not been prioritized.
 
-**Task kind** — derived by the server, never writable, never stored. Precedence is strict top-to-bottom; a recurring task that is also delegated reads as `recurring`:
+**Task kind** — derived by the server, never writable, never stored. Precedence is strict top-to-bottom:
 
 | Value | Condition | Suggested badge |
 |---|---|---|
-| `recurring` | `recurrence_id` is set | Repeats {human rule} |
+| `routine` | spawned from a Daily Routine template | {day slot} |
+| `recurring` | spawned from a classic recurrence | Repeats {human rule} |
 | `delegated` | `delegated_to_id` is set | → {name} |
 | `blocked` | `blocked_by_id` set **or** `status = blocked` | Blocked |
 | `long` | has ≥1 live child task | {done}/{total} subtasks |
@@ -159,7 +161,7 @@ Collections return `{"data": [...], "next_cursor": "<id>" | null}`. Single resou
 
 The single most important endpoint. Params: `date` (YYYY-MM-DD, defaults to today **in the user's account timezone**), `timezone` (IANA override), `context_id` (optional filter).
 
-Returns eight lists plus totals:
+Returns ten lists plus totals:
 
 | Bucket | Contents | Server sort |
 |---|---|---|
@@ -170,21 +172,28 @@ Returns eight lists plus totals:
 | `inbox` | `status = inbox` | `created_at` ASC — oldest first |
 | `blocked` | `status = blocked` | `updated_at` ASC |
 | `waiting_on` | `status = delegated`, **grouped by person** → `[{person_id, person_name, tasks[]}]` | `due_on` ASC within each person; **undated items come first**, not last. Person groups are in first-seen order, not sorted by name or staleness |
+| `routine` | Routine occurrences for `date`, excluded from every ordinary bucket | Morning → Night, then `slot_order` ASC |
 | `completed_today` | `status = done`, completed on `date` | `completed_at` DESC |
+| `cancelled_today` | status `cancelled`, cancelled on `date`, excluding expired Routine tasks | `cancelled_at` DESC |
 
-`totals` — `overdue, due_today, planned, inbox, blocked, waiting_on, in_progress, completed_today, planned_minutes, planned_without_estimate`.
+`totals` — `overdue, due_today, planned, inbox, blocked, waiting_on, in_progress,
+completed_today, cancelled_today, routine, routine_open, routine_done,
+routine_expired, planned_minutes, planned_without_estimate`.
 
-**Five behaviours you must design for:**
+**Six behaviours you must design for:**
 
 1. **Buckets overlap.** One task can appear in `overdue`, `planned` and `blocked` simultaneously. The design must not read as "three separate tasks". Either de-duplicate visually (a task appears in its highest-priority bucket with markers for the others) or make repetition obviously intentional. **Make a recommendation and justify it.**
 2. **`inbox` ignores `context_id`.** An untriaged task has no context, so filtering would always empty the bucket. When a context filter is active, the inbox count is still the *global* count. Label it so this is not read as a bug.
 3. **Lists are capped at 100; totals are not.** A user with 143 overdue tasks gets 100 rows and `totals.overdue = 143`. Design the "43 more" affordance.
 4. **`planned_minutes` + `planned_without_estimate` are the over-commitment signal.** "2h10 planned, 3 tasks with no estimate" is the honest reading. Never render `planned_minutes` as if it were the complete picture when `planned_without_estimate > 0`.
 5. **`due_on` vs `planned_on` are different things.** Due = the deadline that exists in the world. Planned = the day the user *intends* to do it. A task can be due Friday and planned for Tuesday. The design must keep them visually distinct; conflating them destroys the whole model.
+6. **Routine is separate.** Its tasks contribute to Routine and overall progress,
+   but never inflate the ordinary due, planned, overdue, completed, or cancelled
+   buckets.
 
 ### 3.5 Task filters — `GET /v1/tasks`
 
-`status` · `kind` · `priority` (all repeatable or comma-separated) · `context_id` · `project_id` · `parent_id` · `delegated_to_id` · `recurrence_id` · `planned_on` · `planned_before` · `planned_after` · `due_on` · `due_before` · `due_after` · `q` (searches title + details) · `top_level` · `include_deleted` · `limit` (default 50, **max 200**) · `cursor`
+`status` · `kind` · `priority` (all repeatable or comma-separated) · `context_id` · `project_id` · `parent_id` · `delegated_to_id` · `recurrence_id` · `planned_on` · `day_slot` · `planned_before` · `planned_after` · `due_on` · `due_before` · `due_after` · `q` (searches title + details) · `top_level` · `include_deleted` · `limit` (default 50, **max 200**) · `cursor`
 
 `?context_id=null` **is the inbox**. `?project_id=null` and `?parent_id=null` work the same way. `?parent_id=null` and `?top_level=true` are the same question.
 
@@ -478,6 +487,7 @@ Persistent across every authenticated route.
 │  ▸ ARKEA     1 │                                                      │
 │  ─────────────  │                                                      │
 │  ⏳ Waiting   3 │                                                      │
+│  ◷ Routine      │                                                      │
 │  ⟳ Repeating   │                                                      │
 │  ⛌ Blocked   2 │                                                      │
 │  ─────────────  │                                                      │
@@ -491,13 +501,15 @@ Persistent across every authenticated route.
 |---|---|---|
 | Top | **Brief**, **Inbox** | Brief = actionable total for today (`overdue + due_today + planned`, de-duplicated); Inbox = `totals.inbox` |
 | Contexts | One expandable row per context, ordered by `sort_order`. Expands to that context's **projects** (status `active` and `paused`; `done`/`archived` behind a "Show N completed") | Open tasks in that context |
-| Cross-cutting | **Waiting on**, **Repeating**, **Blocked** | `totals.waiting_on`, active series count, `totals.blocked` |
+| Cross-cutting | **Waiting on**, **Routine**, **Repeating**, **Blocked** | `totals.waiting_on`, active Routine items, active classic series, `totals.blocked` |
 | Footer | + New context · Settings · account menu | — |
 
 **Interactions**
 - Click a context row → `W5` (that context's overview). Click the disclosure → expand/collapse without navigating. **These must be separate hit targets.**
 - Expansion state persists per context in localStorage.
-- Contexts are reorderable by drag (`sort_order` is real and writable). Projects and tasks are **not** (§3.9).
+- Contexts are reorderable by drag (`sort_order` is real and writable). Routine
+  items are reorderable inside or across their five slots; other projects and
+  tasks are **not**.
 - Drag a task onto a context row → move (PATCH `context_id`); onto a project row → move to that project and its context. Dropping onto a project of a *different* context must state that both change.
 - Right-click a context → Rename, Change colour, Archive, Delete (with §3.11 cascade copy).
 - Collapsed sidebar (≤1023px, or manual toggle): icon rail with counts as dots; contexts become a single flyout.
@@ -521,6 +533,11 @@ Persistent across every authenticated route.
 │                                                                      │
 │   3 overdue · 5 due today · 6 planned · 2h10 (3 without estimate)    │
 │   ▓▓▓▓▓▓▓▓░░░░░░░░░░  4 of 13 done today                            │
+│                                                                      │
+│  ROUTINE · 8/11 ─────────────────────────────────── Edit routine →   │
+│   MORNING  ✓ Bed & shower   ○ Plan the day   ✓ Intelligence brief    │
+│   MIDDAY   ○ Gym, lunch & machines   ✓ Review tasks & progress       │
+│   EVENING  ○ Review tasks & prepare next day   …                     │
 │                                                                      │
 │  OVERDUE · 3 ──────────────────────────────────────────────────────  │
 │   ○  Send the Arkea invoice          due 21 Jul (4d)  ● Arkea        │
@@ -552,7 +569,7 @@ Persistent across every authenticated route.
 - Date stepper — ‹ / › / "Today". Past dates are historical (read the day that was); future dates are a forecast. **A future brief has an empty `completed_today` and a meaningless `in_progress` — handle both rather than showing empty sections.**
 - Context filter — "All contexts" + one entry per context. **When a context is selected, the Inbox section must be labelled as global** (§3.4.2), e.g. "INBOX · 4 · all contexts".
 
-**Summary strip** — the over-commitment read. `planned_minutes` rendered as `2h10`, always accompanied by `planned_without_estimate` when non-zero. The progress meter is `completed_today / (completed_today + open actionable)`. Define exactly what "open actionable" means and label it so the denominator is not mysterious.
+**Summary strip** — the over-commitment read. `planned_minutes` rendered as `2h10`, always accompanied by `planned_without_estimate` when non-zero. The progress meter includes Routine done/open in addition to ordinary completed/open work, without adding Routine tasks to ordinary due/planned counts. Define the denominator explicitly.
 
 **Sections** — in the fixed order above. Each has: a title, the real total from `totals` (not the row count), an optional right-side affordance, and collapse state persisted per section.
 
@@ -560,6 +577,8 @@ Persistent across every authenticated route.
 - *Overdue* — server-sorted oldest-first. Show days-late explicitly ("4d"), because "21 Jul" alone does not convey lateness on a scan.
 - *Due today* — server-sorted by estimate ascending, with unestimated tasks first (§3.4). Either keep that order and make "no estimate" legible at the top, or re-sort client-side and label it. **Pick one and say which.**
 - *Planned today* — the capacity section. This is where `2h10` belongs.
+- *Routine* — grouped in the fixed order Morning, Midday, Afternoon, Evening,
+  Night. It is the execution surface; "Edit routine" navigates to `W13c`.
 - *Waiting on* — **grouped by person, and the person is the primary unit.** A follow-up is made per person, not per task. Each person group needs a one-gesture "Follow up with Marc" affordance; specify what it does (recommendation: opens capture pre-filled with `@marc` and today's date, since there is no email integration).
 - *Inbox* — a preview plus "Triage all →" into `W4`. Do not make the brief a second triage surface.
 - *Done today* — collapsed by default, expandable. The day's evidence of progress.
@@ -838,6 +857,21 @@ The **RRULE builder** is the hardest form in the app. It must produce a valid `F
 - Note in the design that catch-up is capped at 7 days (§3.12), so the series detail can honestly explain a gap in history rather than looking broken.
 
 **States** — create (empty); editing; invalid rule (inline on the rule); ended (`ends_on` passed → inactive, read-only-ish with a Reactivate path that requires a new `ends_on`); paused (`active: false`); never-spawned; 404; offline; read-only.
+
+### W13c · Daily Routine
+
+**Route** `/routine` · **Data** `GET /v1/recurrences?kind=routine`
+
+Five fixed sections—Morning, Midday, Afternoon, Evening, Night—contain editable
+Routine templates. Each item chooses its own weekdays, required context, optional
+project and estimate. Desktop drag-and-drop changes `slot_order` or moves an item
+between slots; touch and keyboard users get equivalent Move to / Move up / Move
+down controls. This is the only management screen; the Brief is where today's
+instances are completed.
+
+Creation defaults to every day. Pausing or deleting makes today's open instance
+expire; completed and prior expired history remains. The empty state offers an
+explicit, opt-in example Routine rather than silently creating personal tasks.
 
 ### W14 · Search
 

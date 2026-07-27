@@ -98,6 +98,9 @@ func TestCreateUserRejectsBadInput(t *testing.T) {
 	}
 
 	for label, in := range cases {
+		if err := account.ValidateUserInput(in[0], in[1], ""); err == nil {
+			t.Errorf("%s: validation accepted bad input", label)
+		}
 		if _, err := account.CreateUser(ctx, db, in[0], in[1], ""); err == nil {
 			t.Errorf("%s: expected an error", label)
 		}

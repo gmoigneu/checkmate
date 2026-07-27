@@ -4,7 +4,6 @@ import {
 	ArrowLeft,
 	ArrowRight,
 	CalendarDays,
-	Check,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
@@ -24,9 +23,12 @@ import {
 	Settings,
 	Sparkles,
 	Sun,
+	Sunrise,
 	X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { RoutinePage } from "@/components/routine-page";
+import { TaskStatusMenu } from "@/components/task-status-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -43,7 +45,16 @@ import {
 	formatMinutes,
 	todayString,
 } from "@/lib/format";
-import type { Brief, Context, Person, Task, TaskPriority } from "@/lib/types";
+import { taskListStatusFilters, taskStatusOptions } from "@/lib/status";
+import type {
+	Brief,
+	Context,
+	DaySlot,
+	Person,
+	Task,
+	TaskPriority,
+	TaskStatus,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Page =
@@ -51,7 +62,9 @@ type Page =
 	| "inbox"
 	| "tasks"
 	| "waiting"
+	| "routine"
 	| "repeating"
+	| "blocked"
 	| "settings"
 	| "context"
 	| "project";
@@ -74,6 +87,22 @@ const priorityOptions: Array<{ value: TaskPriority; label: string }> = [
 	{ value: "low", label: "Low" },
 ];
 
+function refreshTaskQueries(
+	queryClient: ReturnType<typeof useQueryClient>,
+	task: Task,
+) {
+	queryClient.setQueryData(["task", task.id], task);
+	for (const queryKey of [
+		["brief"],
+		["inbox"],
+		["tasks"],
+		["context-tasks"],
+		["project-tasks"],
+	]) {
+		queryClient.invalidateQueries({ queryKey });
+	}
+}
+
 function PriorityBadge({ priority }: { priority: TaskPriority }) {
 	const label =
 		priorityOptions.find((option) => option.value === priority)?.label ??
@@ -85,11 +114,17 @@ function PriorityBadge({ priority }: { priority: TaskPriority }) {
 	);
 }
 
+function briefQueryKey(date: string, contextId?: string) {
+	return ["brief", date, contextId ?? "all"] as const;
+}
+
 function pageForPath(pathname: string): Page {
 	if (pathname === "/") return "brief";
 	if (pathname.startsWith("/inbox")) return "inbox";
 	if (pathname.startsWith("/waiting")) return "waiting";
+	if (pathname.startsWith("/routine")) return "routine";
 	if (pathname.startsWith("/repeating")) return "repeating";
+	if (pathname.startsWith("/blocked")) return "blocked";
 	if (pathname.startsWith("/settings")) return "settings";
 	if (pathname.startsWith("/c/")) return "context";
 	if (pathname.startsWith("/p/")) return "project";
@@ -120,7 +155,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		retry: false,
 	});
 	const brief = useQuery({
-		queryKey: ["brief", todayString()],
+		queryKey: briefQueryKey(todayString()),
 		queryFn: () => api.brief(todayString()),
 		retry: false,
 	});
@@ -131,12 +166,18 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				event.preventDefault();
 				setCaptureOpen(true);
 			}
+			const target = event.target;
+			const isTypingTarget =
+				target instanceof HTMLElement &&
+				(target.matches("input, textarea, select, [contenteditable='true']") ||
+					Boolean(target.closest('[role="menu"]')));
 			if (
 				event.key.toLowerCase() === "c" &&
-				!(
-					event.target instanceof HTMLInputElement ||
-					event.target instanceof HTMLTextAreaElement
-				)
+				!event.metaKey &&
+				!event.ctrlKey &&
+				!event.altKey &&
+				!event.shiftKey &&
+				!isTypingTarget
 			)
 				setCaptureOpen(true);
 		};
@@ -154,7 +195,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 	}, [location.pathname, needsAuthentication]);
 	if (needsAuthentication) return null;
 
-	const isLoading = me.isLoading || contexts.isLoading || brief.isLoading;
+	const isLoading = me.isLoading || contexts.isLoading;
 	const invalidate = () =>
 		queryClient.invalidateQueries({ queryKey: ["brief"] });
 	const appContexts = contexts.data?.data ?? [];
@@ -164,9 +205,9 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 	const content = () => {
 		const loadedBrief = brief.data;
 		if (isLoading) return <LoadingPage />;
-		if (brief.error) return <ErrorState onRetry={invalidate} />;
-		if (!loadedBrief) return <LoadingPage />;
-		if (page === "brief")
+		if (page === "brief") {
+			if (brief.error) return <ErrorState onRetry={invalidate} />;
+			if (!loadedBrief) return <LoadingPage />;
 			return (
 				<BriefPage
 					brief={loadedBrief}
@@ -174,14 +215,35 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 					onOpenCapture={() => setCaptureOpen(true)}
 				/>
 			);
+		}
 		if (page === "inbox")
 			return <InboxPage contexts={appContexts} people={appPeople} />;
-		if (page === "waiting") return <WaitingPage brief={loadedBrief} />;
+		if (page === "waiting") return <WaitingPage contexts={appContexts} />;
+		if (page === "routine")
+			return (
+				<RoutinePage
+					contexts={appContexts}
+					projects={appProjects}
+					timezone={me.data?.timezone ?? "UTC"}
+					today={todayString(me.data?.timezone)}
+				/>
+			);
 		if (page === "repeating")
 			return (
-				<EmptyPage
+				<TaskListPage
 					title="Repeating"
-					description="Recurring work will appear here. Create a series from a task when you know the rhythm."
+					description="Recurring work, in the context where it belongs."
+					contexts={appContexts}
+					kind="recurring"
+				/>
+			);
+		if (page === "blocked")
+			return (
+				<TaskListPage
+					title="Blocked"
+					description="Work that needs something else to move first."
+					contexts={appContexts}
+					fixedStatus="blocked"
 				/>
 			);
 		if (page === "settings") return <SettingsPage me={me.data} />;
@@ -197,7 +259,13 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 			return (
 				<ProjectPage projects={appProjects} pathname={location.pathname} />
 			);
-		return <TaskListPage />;
+		return (
+			<TaskListPage
+				title="Upcoming"
+				description="Everything ahead, with an honest order."
+				contexts={appContexts}
+			/>
+		);
 	};
 
 	return (
@@ -392,6 +460,19 @@ function Sidebar({
 			<div className="cm-sidebar-gap" />
 			<nav className="cm-sidebar-group" aria-label="Supporting views">
 				<Link
+					to="/routine"
+					className={cn(
+						"cm-sidebar-item",
+						page === "routine" && "cm-sidebar-item-selected",
+					)}
+				>
+					<span className="cm-sidebar-label">
+						<Sunrise className="size-[17px] text-[var(--status-today)]" />
+						Daily Routine
+					</span>
+					<Count value={brief?.totals.routine_open ?? 0} />
+				</Link>
+				<Link
 					to="/waiting"
 					className={cn(
 						"cm-sidebar-item",
@@ -416,7 +497,13 @@ function Sidebar({
 						Repeating
 					</span>
 				</Link>
-				<Link to="/tasks" className="cm-sidebar-item">
+				<Link
+					to="/blocked"
+					className={cn(
+						"cm-sidebar-item",
+						page === "blocked" && "cm-sidebar-item-selected",
+					)}
+				>
 					<span className="cm-sidebar-label">
 						<OctagonX className="size-[17px] text-[var(--task-blocked-fg)]" />
 						Blocked
@@ -448,6 +535,36 @@ function Count({ value }: { value: number }) {
 	) : null;
 }
 
+function ContextFilter({
+	contexts,
+	value,
+	onChange,
+	label,
+	className = "cm-context-select",
+}: {
+	contexts: Context[];
+	value?: string;
+	onChange: (contextId?: string) => void;
+	label: string;
+	className?: string;
+}) {
+	return (
+		<select
+			value={value ?? ""}
+			onChange={(event) => onChange(event.target.value || undefined)}
+			className={className}
+			aria-label={label}
+		>
+			<option value="">All contexts</option>
+			{contexts.map((context) => (
+				<option key={context.id} value={context.id}>
+					{context.name}
+				</option>
+			))}
+		</select>
+	);
+}
+
 function BriefPage({
 	brief,
 	contexts,
@@ -460,11 +577,11 @@ function BriefPage({
 	const [date, setDate] = useState(brief.date || todayString());
 	const [contextId, setContextId] = useState<string>();
 	const query = useQuery({
-		queryKey: ["brief", date, contextId],
+		queryKey: briefQueryKey(date, contextId),
 		queryFn: () => api.brief(date, contextId),
-		initialData: brief,
 	});
 	const data = query.data ?? brief;
+	const hasCurrentData = Boolean(query.data);
 	const canonical = useMemo(() => {
 		const orderedBuckets: Array<[string, Task[]]> = [
 			["overdue", data.overdue],
@@ -526,14 +643,12 @@ function BriefPage({
 		canonical.inProgress.length +
 		canonical.waitingOn.reduce((sum, group) => sum + group.tasks.length, 0) +
 		canonical.blocked.length +
-		canonical.inbox.length;
+		canonical.inbox.length +
+		data.totals.routine_open;
+	const completedWork = data.totals.completed_today + data.totals.routine_done;
 	const doneRatio =
-		data.totals.completed_today + openWork
-			? Math.round(
-					(data.totals.completed_today /
-						(data.totals.completed_today + openWork)) *
-						100,
-				)
+		completedWork + openWork
+			? Math.round((completedWork / (completedWork + openWork)) * 100)
 			: 0;
 	const perfect = !openWork;
 	return (
@@ -567,22 +682,17 @@ function BriefPage({
 							<ChevronRight className="size-4" />
 						</Button>
 					</div>
-					<select
-						value={contextId ?? ""}
-						onChange={(event) => setContextId(event.target.value || undefined)}
-						className="cm-context-select"
-						aria-label="Filter the brief by context"
-					>
-						<option value="">All contexts</option>
-						{contexts.map((context) => (
-							<option key={context.id} value={context.id}>
-								{context.name}
-							</option>
-						))}
-					</select>
+					<ContextFilter
+						contexts={contexts}
+						value={contextId}
+						onChange={setContextId}
+						label="Filter the brief by context"
+					/>
 				</div>
 			</div>
-			{perfect ? (
+			{!hasCurrentData ? (
+				<LoadingPage />
+			) : perfect ? (
 				<PerfectDay onCapture={onOpenCapture} />
 			) : (
 				<>
@@ -606,6 +716,11 @@ function BriefPage({
 							</span>
 							<i>·</i>
 							<span className="cm-summary-stat">
+								<strong>{data.totals.routine_open}</strong>
+								<span>routine</span>
+							</span>
+							<i>·</i>
+							<span className="cm-summary-stat">
 								<strong>{formatMinutes(data.totals.planned_minutes)}</strong>
 								{data.totals.planned_without_estimate
 									? ` (${data.totals.planned_without_estimate} without estimate)`
@@ -620,8 +735,7 @@ function BriefPage({
 								/>
 							</div>
 							<span>
-								{data.totals.completed_today} of{" "}
-								{data.totals.completed_today + openWork} done today
+								{completedWork} of {completedWork + openWork} done today
 							</span>
 						</div>
 					</div>
@@ -631,6 +745,12 @@ function BriefPage({
 						tasks={canonical.overdue}
 						tone="overdue"
 						contexts={contexts}
+					/>
+					<RoutineBriefSection
+						tasks={data.routine}
+						contexts={contexts}
+						total={data.totals.routine}
+						done={data.totals.routine_done}
 					/>
 					<BriefSection
 						title="Due today"
@@ -689,6 +809,60 @@ function BriefPage({
 }
 
 type BriefDisplayTask = Task & { alsoIn?: string[] };
+
+const daySlotLabels: Record<DaySlot, string> = {
+	morning: "Morning",
+	midday: "Midday",
+	afternoon: "Afternoon",
+	evening: "Evening",
+	night: "Night",
+};
+
+function RoutineBriefSection({
+	tasks,
+	contexts,
+	total,
+	done,
+}: {
+	tasks: Task[];
+	contexts: Context[];
+	total: number;
+	done: number;
+}) {
+	if (!tasks.length) return null;
+
+	return (
+		<section className="cm-brief-section cm-routine-brief">
+			<div className="cm-section-header">
+				<h2>Daily Routine</h2>
+				<span className="cm-section-count">
+					· {done} of {total} done
+				</span>
+				<span className="cm-section-spacer" />
+				<Link to="/routine" className="cm-section-action">
+					Edit routine <ArrowRight className="size-3.5" />
+				</Link>
+			</div>
+			<div className="cm-routine-brief-groups">
+				{(Object.keys(daySlotLabels) as DaySlot[]).map((slot) => {
+					const slotTasks = tasks.filter((task) => task.day_slot === slot);
+					if (!slotTasks.length) return null;
+
+					return (
+						<div key={slot} className="cm-routine-brief-group">
+							<p>{daySlotLabels[slot]}</p>
+							<div className="cm-task-list">
+								{slotTasks.map((task) => (
+									<TaskRow key={task.id} task={task} contexts={contexts} />
+								))}
+							</div>
+						</div>
+					);
+				})}
+			</div>
+		</section>
+	);
+}
 
 function BriefSection({
 	title,
@@ -836,15 +1010,18 @@ function TaskRow({
 	contexts?: Context[];
 }) {
 	const queryClient = useQueryClient();
-	const isDone = done || task.status === "done" || task.status === "cancelled";
+	const isDone =
+		done ||
+		task.status === "done" ||
+		task.status === "cancelled" ||
+		task.status === "expired";
 	const context = contexts?.find(
 		(candidate) => candidate.id === task.context_id,
 	);
 	const contextIndex = context ? (contexts?.indexOf(context) ?? 0) : 0;
 	const mutation = useMutation({
-		mutationFn: () =>
-			api.updateTask(task.id, { status: isDone ? "todo" : "done" }),
-		onSuccess: () => queryClient.invalidateQueries({ queryKey: ["brief"] }),
+		mutationFn: (status: TaskStatus) => api.updateTask(task.id, { status }),
+		onSuccess: (updatedTask) => refreshTaskQueries(queryClient, updatedTask),
 	});
 	return (
 		<div
@@ -854,23 +1031,23 @@ function TaskRow({
 				isDone && "cm-task-row-done",
 			)}
 		>
-			<button
-				type="button"
-				className={cn("cm-completion", isDone && "cm-completion-done")}
-				onClick={(event) => {
-					event.preventDefault();
-					mutation.mutate();
-				}}
-				aria-label={`${isDone ? "Mark" : "Mark"} ${task.title} ${
-					isDone ? "as not done" : "as done"
-				}`}
-			>
-				{isDone ? (
-					<Check className="size-3" />
-				) : mutation.isPending ? (
-					<LoaderCircle className="size-3 animate-spin" />
+			<div className="flex shrink-0 flex-col items-start gap-1">
+				<TaskStatusMenu
+					status={task.status}
+					onStatusChange={(status) => mutation.mutate(status)}
+					disabled={mutation.isPending}
+					taskTitle={task.title}
+					canDelegate={Boolean(task.delegated_to_id)}
+				/>
+				{mutation.error ? (
+					<span
+						role="alert"
+						className="max-w-36 text-xs leading-tight text-destructive"
+					>
+						{mutation.error.message}
+					</span>
 				) : null}
-			</button>
+			</div>
 			<Link
 				to="/t/$taskId"
 				params={{ taskId: task.id }}
@@ -889,15 +1066,19 @@ function TaskRow({
 						{formatMinutes(task.estimate_minutes)}
 					</span>
 				) : null}
-				{task.kind === "recurring" ? (
+				{task.kind === "recurring" || task.kind === "routine" ? (
 					<span className="cm-task-meta">
-						<Repeat2 className="size-3" /> Repeats
+						<Repeat2 className="size-3" />{" "}
+						{task.kind === "routine" ? "Routine" : "Repeats"}
 					</span>
 				) : null}
 				{task.delegated_to_name ? (
 					<span className="cm-task-meta cm-delegated">
 						<ArrowRight className="size-3" /> {task.delegated_to_name}
 					</span>
+				) : null}
+				{task.day_slot ? (
+					<span className="cm-slot-chip">{daySlotLabels[task.day_slot]}</span>
 				) : null}
 				{task.planned_on ? (
 					<span className="cm-date-chip cm-planned-chip">
@@ -1301,25 +1482,48 @@ function TriageCard({
 	);
 }
 
-function TaskListPage() {
+function TaskListPage({
+	title,
+	description,
+	contexts,
+	fixedStatus,
+	kind,
+}: {
+	title: string;
+	description: string;
+	contexts: Context[];
+	fixedStatus?: TaskStatus;
+	kind?: Task["kind"];
+}) {
 	const [query, setQuery] = useState("");
 	const [status, setStatus] = useState("");
 	const [priority, setPriority] = useState("");
+	const [contextId, setContextId] = useState<string>();
 	const parameters = new URLSearchParams({ limit: "200" });
 	if (query) parameters.set("q", query);
-	if (status) parameters.set("status", status);
+	if (fixedStatus) parameters.set("status", fixedStatus);
+	else if (status) parameters.set("status", status);
 	if (priority) parameters.set("priority", priority);
+	if (contextId) parameters.set("context_id", contextId);
+	if (kind) parameters.set("kind", kind);
 	const tasks = useQuery({
-		queryKey: ["tasks", query, status, priority],
+		queryKey: [
+			"tasks",
+			kind ?? "all-kinds",
+			fixedStatus ?? status,
+			query,
+			priority,
+			contextId ?? "all-contexts",
+		],
 		queryFn: () => api.tasks(parameters),
 	});
 	return (
 		<section>
 			<div className="mb-8">
 				<p className="mb-2 text-sm font-medium text-muted-foreground">
-					Everything, with an honest order.
+					{description}
 				</p>
-				<h1 className="font-display text-4xl tracking-tight">Tasks</h1>
+				<h1 className="font-display text-4xl tracking-tight">{title}</h1>
 			</div>
 			<div className="mb-5 flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 sm:flex-row">
 				<div className="flex flex-1 items-center gap-2">
@@ -1331,24 +1535,34 @@ function TaskListPage() {
 						className="border-0 shadow-none focus-visible:ring-0"
 					/>
 				</div>
-				<select
-					value={status}
-					onChange={(event) => setStatus(event.target.value)}
+				<ContextFilter
+					contexts={contexts}
+					value={contextId}
+					onChange={setContextId}
+					label={`Filter ${title.toLowerCase()} by context`}
 					className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
-					aria-label="Filter tasks by status"
-				>
-					<option value="">Any status</option>
-					<option value="todo,in_progress">Open work</option>
-					<option value="blocked">Blocked</option>
-					<option value="delegated">Waiting on</option>
-					<option value="done">Done</option>
-					<option value="cancelled">Cancelled</option>
-				</select>
+				/>
+				{fixedStatus ? null : (
+					<select
+						value={status}
+						onChange={(event) => setStatus(event.target.value)}
+						className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
+						aria-label={`Filter ${title.toLowerCase()} by status`}
+					>
+						<option value="">Any status</option>
+						<option value="todo,in_progress">Open work</option>
+						{taskListStatusFilters.map((status) => (
+							<option key={status} value={status}>
+								{taskStatusOptions[status].label}
+							</option>
+						))}
+					</select>
+				)}
 				<select
 					value={priority}
 					onChange={(event) => setPriority(event.target.value)}
 					className="h-9 rounded-lg border border-border bg-background px-3 text-sm"
-					aria-label="Filter tasks by priority"
+					aria-label={`Filter ${title.toLowerCase()} by priority`}
 				>
 					<option value="">Any priority</option>
 					{priorityOptions.map((option) => (
@@ -1364,6 +1578,8 @@ function TaskListPage() {
 			</p>
 			{tasks.isLoading ? (
 				<LoadingPage />
+			) : tasks.error ? (
+				<TaskQueryError onRetry={() => tasks.refetch()} />
 			) : tasks.data?.data.length ? (
 				<div className="overflow-hidden rounded-2xl border border-border bg-card">
 					{tasks.data.data.map((task) => (
@@ -1380,17 +1596,36 @@ function TaskListPage() {
 	);
 }
 
-function WaitingPage({ brief }: { brief: Brief }) {
+function WaitingPage({ contexts }: { contexts: Context[] }) {
+	const [contextId, setContextId] = useState<string>();
+	const date = todayString();
+	const query = useQuery({
+		queryKey: briefQueryKey(date, contextId),
+		queryFn: () => api.brief(date, contextId),
+	});
+	const data = query.data;
 	return (
 		<section>
-			<div className="mb-8">
-				<p className="mb-2 text-sm font-medium text-muted-foreground">
-					People, not loose ends.
-				</p>
-				<h1 className="font-display text-4xl tracking-tight">Waiting on</h1>
+			<div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+				<div>
+					<p className="mb-2 text-sm font-medium text-muted-foreground">
+						People, not loose ends.
+					</p>
+					<h1 className="font-display text-4xl tracking-tight">Waiting on</h1>
+				</div>
+				<ContextFilter
+					contexts={contexts}
+					value={contextId}
+					onChange={setContextId}
+					label="Filter waiting on by context"
+				/>
 			</div>
-			{brief.waiting_on.length ? (
-				<WaitingSection groups={brief.waiting_on} />
+			{query.error ? (
+				<ErrorState onRetry={() => query.refetch()} />
+			) : !data ? (
+				<LoadingPage />
+			) : data.waiting_on.length ? (
+				<WaitingSection groups={data.waiting_on} contexts={contexts} />
 			) : (
 				<EmptyPage
 					title="No one is holding up your day"
@@ -1436,14 +1671,18 @@ function ContextPage({
 		contextPalette[contexts.indexOf(context) % contextPalette.length];
 	return (
 		<section>
-			<div className="mb-9 rounded-3xl bg-[var(--ink)] px-7 py-8 text-white">
-				<span
-					className="mb-5 block size-3 rounded-full"
-					style={{ backgroundColor: color }}
-				/>
-				<p className="mb-2 text-sm text-white/60">One life at a time</p>
-				<h1 className="font-display text-4xl tracking-tight">{context.name}</h1>
-				<div className="mt-7 flex gap-7 text-sm">
+			<div className="cm-context-card mb-9 rounded-3xl px-7 py-7">
+				<div className="cm-context-kicker flex items-center gap-3 text-sm">
+					<span
+						className="block size-3 rounded-full"
+						style={{ backgroundColor: color }}
+					/>
+					<span>One life at a time</span>
+				</div>
+				<h1 className="mt-4 font-display text-4xl tracking-tight">
+					{context.name}
+				</h1>
+				<div className="cm-context-stats mt-7 flex gap-7 pt-4 text-sm">
 					<span>
 						<b className="tabular-nums">
 							{tasks.data?.data.filter(
@@ -1495,7 +1734,11 @@ function ContextPage({
 				</p>
 			)}
 			<h2 className="mb-3 font-display text-2xl">Open tasks</h2>
-			{tasks.data?.data.length ? (
+			{tasks.isLoading ? (
+				<LoadingPage />
+			) : tasks.error ? (
+				<TaskQueryError onRetry={() => tasks.refetch()} />
+			) : tasks.data?.data.length ? (
 				<div className="overflow-hidden rounded-2xl border border-border bg-card">
 					{tasks.data.data.map((task) => (
 						<TaskRow key={task.id} task={task} />
@@ -1570,7 +1813,11 @@ function ProjectPage({
 					Add task
 				</Button>
 			</div>
-			{tasks.data?.data.length ? (
+			{tasks.isLoading ? (
+				<LoadingPage />
+			) : tasks.error ? (
+				<TaskQueryError onRetry={() => tasks.refetch()} />
+			) : tasks.data?.data.length ? (
 				<div className="overflow-hidden rounded-2xl border border-border bg-card">
 					{tasks.data.data.map((task) => (
 						<TaskRow key={task.id} task={task} />
@@ -1646,11 +1893,7 @@ function TaskDetail({
 	const update = useMutation({
 		mutationFn: (body: Record<string, unknown>) => api.updateTask(taskId, body),
 		onSuccess: (task) => {
-			queryClient.setQueryData(["task", taskId], task);
-			queryClient.invalidateQueries({ queryKey: ["brief"] });
-			queryClient.invalidateQueries({ queryKey: ["tasks"] });
-			queryClient.invalidateQueries({ queryKey: ["context-tasks"] });
-			queryClient.invalidateQueries({ queryKey: ["project-tasks"] });
+			refreshTaskQueries(queryClient, task);
 			setEditing(false);
 		},
 	});
@@ -1681,27 +1924,14 @@ function TaskDetail({
 				) : task ? (
 					<div className="p-6">
 						<div className="flex gap-3">
-							<button
-								type="button"
-								className={cn(
-									"mt-1 grid size-6 shrink-0 place-items-center rounded-full border",
-									task.status === "done"
-										? "border-[var(--sage)] bg-[var(--sage)] text-white"
-										: "border-muted-foreground/50",
-								)}
-								onClick={() =>
-									update.mutate({
-										status: task.status === "done" ? "todo" : "done",
-									})
-								}
-								aria-label={
-									task.status === "done"
-										? `Mark ${task.title} as not done`
-										: `Mark ${task.title} as done`
-								}
-							>
-								{task.status === "done" ? <Check className="size-4" /> : null}
-							</button>
+							<TaskStatusMenu
+								status={task.status}
+								onStatusChange={(status) => update.mutate({ status })}
+								disabled={update.isPending}
+								className="mt-1"
+								taskTitle={task.title}
+								canDelegate={Boolean(task.delegated_to_id)}
+							/>
 							<div className="min-w-0 flex-1">
 								{editing ? (
 									<Input
@@ -1728,21 +1958,12 @@ function TaskDetail({
 						</div>
 						<div className="mt-8 divide-y divide-border rounded-2xl border border-border">
 							<Field label="Status">
-								<select
-									value={task.status}
-									onChange={(event) =>
-										update.mutate({ status: event.target.value })
-									}
-									className="bg-transparent text-sm outline-none"
-								>
-									<option value="inbox">Inbox</option>
-									<option value="todo">To do</option>
-									<option value="in_progress">In progress</option>
-									<option value="blocked">Blocked</option>
-									<option value="delegated">Waiting on</option>
-									<option value="done">Done</option>
-									<option value="cancelled">Cancelled</option>
-								</select>
+								<TaskStatusMenu
+									status={task.status}
+									onStatusChange={(status) => update.mutate({ status })}
+									disabled={update.isPending}
+									canDelegate={Boolean(task.delegated_to_id)}
+								/>
 							</Field>
 							<Field label="Priority">
 								<select
@@ -1789,8 +2010,34 @@ function TaskDetail({
 							<DateField
 								label="Planned"
 								value={task.planned_on}
-								onChange={(value) => update.mutate({ planned_on: value })}
+								onChange={(value) =>
+									update.mutate({
+										planned_on: value,
+										...(value ? {} : { day_slot: null }),
+									})
+								}
 							/>
+							<Field label="Day slot">
+								<select
+									value={task.day_slot ?? ""}
+									onChange={(event) =>
+										update.mutate({
+											day_slot: event.target.value || null,
+											...(!task.planned_on && event.target.value
+												? { planned_on: todayString() }
+												: {}),
+										})
+									}
+									className="bg-transparent text-sm outline-none"
+								>
+									<option value="">No slot</option>
+									{Object.entries(daySlotLabels).map(([value, label]) => (
+										<option key={value} value={value}>
+											{label}
+										</option>
+									))}
+								</select>
+							</Field>
 							<Field label="Estimate">
 								{task.estimate_minutes ? (
 									<button
@@ -1847,6 +2094,14 @@ function TaskDetail({
 								</select>
 							</Field>
 						</div>
+						{update.error ? (
+							<p
+								role="alert"
+								className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+							>
+								{update.error.message}
+							</p>
+						) : null}
 						<div className="mt-8">
 							<p className="mb-2 text-sm font-medium">Details</p>
 							<Textarea
@@ -1975,14 +2230,28 @@ function LoadingPage() {
 		</div>
 	);
 }
-function ErrorState({ onRetry }: { onRetry: () => void }) {
+function TaskQueryError({ onRetry }: { onRetry: () => void }) {
+	return (
+		<ErrorState
+			onRetry={onRetry}
+			title="Tasks are unavailable"
+			description="Check your connection and try loading this task list again."
+		/>
+	);
+}
+function ErrorState({
+	onRetry,
+	title = "The brief is unavailable",
+	description = "Your last synced data remains readable when it is available. Try again when the server is reachable.",
+}: {
+	onRetry: () => void;
+	title?: string;
+	description?: string;
+}) {
 	return (
 		<div className="rounded-2xl border border-[var(--overdue)]/30 bg-[var(--overdue-bg)] p-6">
-			<h2 className="font-display text-2xl">The brief is unavailable</h2>
-			<p className="mt-2 text-sm text-muted-foreground">
-				Your last synced data remains readable when it is available. Try again
-				when the server is reachable.
-			</p>
+			<h2 className="font-display text-2xl">{title}</h2>
+			<p className="mt-2 text-sm text-muted-foreground">{description}</p>
 			<Button className="mt-4" variant="outline" onClick={onRetry}>
 				<RefreshCw className="mr-2 size-4" />
 				Try again

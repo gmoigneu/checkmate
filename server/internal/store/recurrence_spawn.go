@@ -15,11 +15,14 @@ import (
 type DueRecurrence struct {
 	ID               string
 	UserID           string
+	Kind             string
 	ContextID        string
 	ProjectID        *string
 	SourceKey        *string
 	Title            string
 	Details          *string
+	DaySlot          *string
+	SlotOrder        int64
 	RRule            string
 	Timezone         string
 	EstimateMinutes  *int64
@@ -38,14 +41,17 @@ type DueRecurrence struct {
 // user_id from the template, so ownership is still carried through.
 func (s *Store) ListDueRecurrences(ctx context.Context, horizon string) ([]DueRecurrence, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, context_id, project_id, source_key, title, details, rrule,
-		       timezone, estimate_minutes, delegated_to_id, lead_days, starts_on,
-		       ends_on, next_occurrence_on, last_spawned_on
-		FROM recurrences
-		WHERE active = 1
-		  AND deleted_at IS NULL
-		  AND (next_occurrence_on IS NULL OR next_occurrence_on <= ?)
-		ORDER BY id`,
+		SELECT r.id, r.user_id, r.kind, r.context_id, r.project_id, r.source_key,
+		       r.title, r.details, r.day_slot, r.slot_order, r.rrule,
+		       CASE WHEN r.kind = 'routine' THEN u.timezone ELSE r.timezone END,
+		       r.estimate_minutes, r.delegated_to_id, r.lead_days, r.starts_on,
+		       r.ends_on, r.next_occurrence_on, r.last_spawned_on
+		FROM recurrences r
+		JOIN users u ON u.id = r.user_id
+		WHERE r.active = 1
+		  AND r.deleted_at IS NULL
+		  AND (r.next_occurrence_on IS NULL OR r.next_occurrence_on <= ?)
+		ORDER BY r.id`,
 		horizon,
 	)
 	if err != nil {
@@ -58,8 +64,8 @@ func (s *Store) ListDueRecurrences(ctx context.Context, horizon string) ([]DueRe
 	for rows.Next() {
 		var r DueRecurrence
 
-		err := rows.Scan(&r.ID, &r.UserID, &r.ContextID, &r.ProjectID, &r.SourceKey,
-			&r.Title, &r.Details, &r.RRule, &r.Timezone, &r.EstimateMinutes,
+		err := rows.Scan(&r.ID, &r.UserID, &r.Kind, &r.ContextID, &r.ProjectID, &r.SourceKey,
+			&r.Title, &r.Details, &r.DaySlot, &r.SlotOrder, &r.RRule, &r.Timezone, &r.EstimateMinutes,
 			&r.DelegatedToID, &r.LeadDays, &r.StartsOn, &r.EndsOn,
 			&r.NextOccurrenceOn, &r.LastSpawnedOn)
 		if err != nil {
@@ -84,14 +90,17 @@ func (s *Store) GetDueRecurrence(ctx context.Context, userID, recurrenceID strin
 	var r DueRecurrence
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, user_id, context_id, project_id, source_key, title, details, rrule,
-		       timezone, estimate_minutes, delegated_to_id, lead_days, starts_on,
-		       ends_on, next_occurrence_on, last_spawned_on
-		FROM recurrences
-		WHERE id = ? AND user_id = ? AND active = 1 AND deleted_at IS NULL`,
+		SELECT r.id, r.user_id, r.kind, r.context_id, r.project_id, r.source_key,
+		       r.title, r.details, r.day_slot, r.slot_order, r.rrule,
+		       CASE WHEN r.kind = 'routine' THEN u.timezone ELSE r.timezone END,
+		       r.estimate_minutes, r.delegated_to_id, r.lead_days, r.starts_on,
+		       r.ends_on, r.next_occurrence_on, r.last_spawned_on
+		FROM recurrences r
+		JOIN users u ON u.id = r.user_id
+		WHERE r.id = ? AND r.user_id = ? AND r.active = 1 AND r.deleted_at IS NULL`,
 		recurrenceID, userID,
-	).Scan(&r.ID, &r.UserID, &r.ContextID, &r.ProjectID, &r.SourceKey,
-		&r.Title, &r.Details, &r.RRule, &r.Timezone, &r.EstimateMinutes,
+	).Scan(&r.ID, &r.UserID, &r.Kind, &r.ContextID, &r.ProjectID, &r.SourceKey,
+		&r.Title, &r.Details, &r.DaySlot, &r.SlotOrder, &r.RRule, &r.Timezone, &r.EstimateMinutes,
 		&r.DelegatedToID, &r.LeadDays, &r.StartsOn, &r.EndsOn,
 		&r.NextOccurrenceOn, &r.LastSpawnedOn)
 	if err != nil {
@@ -119,16 +128,22 @@ func (s *Store) SpawnOccurrence(ctx context.Context, template DueRecurrence, occ
 		status = "delegated"
 	}
 
+	var plannedOn *string
+	if template.DaySlot != nil {
+		plannedOn = &occurrenceOn
+	}
+
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO tasks (id, user_id, context_id, project_id, source_key, capture_method,
-			title, details, status, due_on, estimate_minutes, delegated_to_id,
-			recurrence_id, occurrence_on)
-		 VALUES (?, ?, ?, ?, ?, 'recurrence', ?, ?, ?, ?, ?, ?, ?, ?)
+			title, details, status, due_on, planned_on, day_slot, slot_order,
+			estimate_minutes, delegated_to_id, recurrence_id, occurrence_on)
+		 VALUES (?, ?, ?, ?, ?, 'recurrence', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (recurrence_id, occurrence_on)
 		   WHERE recurrence_id IS NOT NULL AND occurrence_on IS NOT NULL
 		 DO NOTHING`,
 		id.New(), template.UserID, template.ContextID, template.ProjectID, template.SourceKey,
-		template.Title, template.Details, status, occurrenceOn, template.EstimateMinutes,
+		template.Title, template.Details, status, occurrenceOn, plannedOn, template.DaySlot,
+		template.SlotOrder, template.EstimateMinutes,
 		template.DelegatedToID, template.ID, occurrenceOn,
 	)
 	if err != nil {

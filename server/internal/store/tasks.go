@@ -13,8 +13,9 @@ import (
 // Read through the view so kind comes back derived rather than stored.
 const taskColumns = `id, context_id, project_id, parent_id, recurrence_id, occurrence_on,
 	source_key, capture_method, title, details, status, due_on, planned_on,
-	priority, estimate_minutes, delegated_to_id, blocked_by_id, reference_url, reference_label,
-	kind, completed_at, cancelled_at, created_at, updated_at, deleted_at, rev`
+	day_slot, slot_order, priority, estimate_minutes, delegated_to_id, blocked_by_id,
+	reference_url, reference_label, kind, completed_at, cancelled_at, expired_at,
+	created_at, updated_at, deleted_at, rev`
 
 // TaskCreate is the input for creating a task.
 type TaskCreate struct {
@@ -29,6 +30,8 @@ type TaskCreate struct {
 	Priority        *string
 	DueOn           *string
 	PlannedOn       *string
+	DaySlot         *string
+	SlotOrder       *int64
 	EstimateMinutes *int64
 	DelegatedToID   *string
 	BlockedByID     *string
@@ -52,6 +55,8 @@ type TaskUpdate struct {
 	Priority        patch.Field[string]
 	DueOn           patch.Field[string]
 	PlannedOn       patch.Field[string]
+	DaySlot         patch.Field[string]
+	SlotOrder       patch.Field[int64]
 	EstimateMinutes patch.Field[int64]
 	DelegatedToID   patch.Field[string]
 	BlockedByID     patch.Field[string]
@@ -66,6 +71,7 @@ type TaskFilter struct {
 	Status   []string
 	Kind     []string
 	Priority []string
+	DaySlot  string
 
 	// ContextID filters to one context; ContextIsNull selects the inbox, where
 	// quick-captured tasks land before triage.
@@ -118,9 +124,13 @@ func (s *Store) ListTasks(ctx context.Context, userID string, f TaskFilter) ([]m
 		c.add("deleted_at IS NULL")
 	}
 
-	c.addIn("status", f.Status)
+	addTaskStatusConditions(c, f.Status)
 	c.addIn("kind", f.Kind)
 	c.addIn("priority", f.Priority)
+
+	if f.DaySlot != "" {
+		c.add("day_slot = ?", f.DaySlot)
+	}
 
 	switch {
 	case f.ContextIsNull:
@@ -235,6 +245,51 @@ func (s *Store) ListTasks(ctx context.Context, userID string, f TaskFilter) ([]m
 	return out, plan.nextCursor(out[limit-1].ID, keys[limit-1]), nil
 }
 
+// addTaskStatusConditions maps the API-only expired status onto its persisted
+// representation. Expired routine tasks keep status=cancelled to satisfy the
+// original table CHECK and are distinguished by expired_at.
+func addTaskStatusConditions(c *conditions, statuses []string) {
+	if len(statuses) == 0 {
+		return
+	}
+
+	var (
+		persisted   []string
+		wantExpired bool
+	)
+
+	for _, status := range statuses {
+		if status == model.StatusExpired {
+			wantExpired = true
+		} else {
+			persisted = append(persisted, status)
+		}
+	}
+
+	switch {
+	case wantExpired && len(persisted) == 0:
+		c.add("expired_at IS NOT NULL")
+	case !wantExpired:
+		c.addIn("status", persisted)
+		if containsTaskStatus(persisted, model.StatusCancelled) {
+			c.add("expired_at IS NULL")
+		}
+	default:
+		in, args := inClause(persisted)
+		c.add("(expired_at IS NOT NULL OR (expired_at IS NULL AND status IN "+in+"))", args...)
+	}
+}
+
+func containsTaskStatus(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+
+	return false
+}
+
 // scanSortedTask scans a task row, plus the sort key when the query selected one.
 func scanSortedTask(rows *sql.Rows, plan sortPlan) (model.Task, *string, error) {
 	if plan.byIDOnly {
@@ -257,6 +312,7 @@ func scanSortedTask(rows *sql.Rows, plan sortPlan) (model.Task, *string, error) 
 	if err := rows.Scan(dest...); err != nil {
 		return model.Task{}, nil, notFoundOr(err, "scan sorted task")
 	}
+	normalizeTaskStatus(&task)
 
 	if !key.Valid {
 		return task, nil, nil
@@ -295,6 +351,21 @@ func (s *Store) CreateTask(ctx context.Context, userID string, in TaskCreate) (m
 		} else {
 			status = model.StatusTodo
 		}
+	}
+
+	if status == model.StatusExpired {
+		return model.Task{}, &ConflictError{
+			Field: "status", Detail: "expired is written only by the routine lifecycle",
+		}
+	}
+
+	if in.DaySlot != nil && in.PlannedOn == nil {
+		return model.Task{}, &ConflictError{Field: "day_slot", Detail: "requires planned_on"}
+	}
+
+	var slotOrder int64
+	if in.SlotOrder != nil {
+		slotOrder = *in.SlotOrder
 	}
 
 	err := s.tx(ctx, func(tx *sql.Tx) error {
@@ -342,13 +413,15 @@ func (s *Store) CreateTask(ctx context.Context, userID string, in TaskCreate) (m
 
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO tasks (id, user_id, context_id, project_id, parent_id, source_key,
-				capture_method, title, details, status, priority, due_on, planned_on, estimate_minutes,
+				capture_method, title, details, status, priority, due_on, planned_on, day_slot,
+				slot_order, estimate_minutes,
 				delegated_to_id, blocked_by_id, reference_url, reference_label,
 				completed_at, cancelled_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, `+
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, `+
 				completedAt+`, `+cancelledAt+`)`,
 			newID, userID, in.ContextID, in.ProjectID, in.ParentID, in.Source,
-			captureMethod, in.Title, in.Details, status, in.Priority, in.DueOn, in.PlannedOn, in.EstimateMinutes,
+			captureMethod, in.Title, in.Details, status, in.Priority, in.DueOn, in.PlannedOn,
+			in.DaySlot, slotOrder, in.EstimateMinutes,
 			in.DelegatedToID, in.BlockedByID, in.ReferenceURL, in.ReferenceLabel,
 		)
 		if err != nil {
@@ -372,6 +445,10 @@ func (s *Store) UpdateTask(ctx context.Context, userID, taskID string, in TaskUp
 			return err
 		}
 
+		if current.Status == model.StatusExpired {
+			return &ConflictError{Field: "status", Detail: "expired routine tasks are immutable"}
+		}
+
 		b := &updateBuilder{}
 
 		applyField(b, "title", in.Title)
@@ -379,6 +456,8 @@ func (s *Store) UpdateTask(ctx context.Context, userID, taskID string, in TaskUp
 		applyField(b, "priority", in.Priority)
 		applyField(b, "due_on", in.DueOn)
 		applyField(b, "planned_on", in.PlannedOn)
+		applyField(b, "day_slot", in.DaySlot)
+		applyField(b, "slot_order", in.SlotOrder)
 		applyField(b, "estimate_minutes", in.EstimateMinutes)
 		applyField(b, "reference_url", in.ReferenceURL)
 		applyField(b, "reference_label", in.ReferenceLabel)
@@ -435,6 +514,28 @@ func (s *Store) UpdateTask(ctx context.Context, userID, taskID string, in TaskUp
 			if err := assertProjectInContext(ctx, tx, userID, *projectID, *contextID); err != nil {
 				return err
 			}
+		}
+
+		plannedOn := current.PlannedOn
+		if in.PlannedOn.Set {
+			if in.PlannedOn.Null {
+				plannedOn = nil
+			} else {
+				plannedOn = &in.PlannedOn.Value
+			}
+		}
+
+		daySlot := current.DaySlot
+		if in.DaySlot.Set {
+			if in.DaySlot.Null {
+				daySlot = nil
+			} else {
+				daySlot = &in.DaySlot.Value
+			}
+		}
+
+		if daySlot != nil && plannedOn == nil {
+			return &ConflictError{Field: "day_slot", Detail: "requires planned_on"}
 		}
 
 		// Clearing the context sends a task back to the inbox, so its project
@@ -580,8 +681,13 @@ func applyStatus(b *updateBuilder, in patch.Field[string], currentStatus string,
 // wait forever on something that no longer exists.
 func (s *Store) DeleteTask(ctx context.Context, userID, taskID string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		if err := assertRowOwned(ctx, tx, "tasks", "id", taskID, userID); err != nil {
-			return ErrNotFound
+		task, err := getTaskTx(ctx, tx, userID, taskID)
+		if err != nil {
+			return err
+		}
+
+		if task.Status == model.StatusExpired {
+			return &ConflictError{Field: "status", Detail: "expired routine tasks are immutable"}
 		}
 
 		// One id for this whole delete, so a later restore can bring back exactly
@@ -590,7 +696,7 @@ func (s *Store) DeleteTask(ctx context.Context, userID, taskID string) error {
 
 		// Collect the subtree first: the tombstone has to reach descendants at
 		// every depth, not just direct children.
-		_, err := tx.ExecContext(ctx, `
+		_, err = tx.ExecContext(ctx, `
 			WITH RECURSIVE subtree(id) AS (
 				SELECT ?
 				UNION
@@ -673,9 +779,10 @@ func taskScanTargets(v *model.Task) []any {
 	return []any{
 		&v.ID, &v.ContextID, &v.ProjectID, &v.ParentID, &v.RecurrenceID, &v.OccurrenceOn,
 		&v.Source, &v.CaptureMethod, &v.Title, &v.Details, &v.Status, &v.DueOn, &v.PlannedOn,
-		&v.Priority,
+		&v.DaySlot, &v.SlotOrder, &v.Priority,
 		&v.EstimateMinutes, &v.DelegatedToID, &v.BlockedByID, &v.ReferenceURL, &v.ReferenceLabel,
-		&v.Kind, &v.CompletedAt, &v.CancelledAt, &v.CreatedAt, &v.UpdatedAt, &v.DeletedAt, &v.Rev,
+		&v.Kind, &v.CompletedAt, &v.CancelledAt, &v.ExpiredAt,
+		&v.CreatedAt, &v.UpdatedAt, &v.DeletedAt, &v.Rev,
 	}
 }
 
@@ -686,5 +793,13 @@ func scanTask(sc scanner) (model.Task, error) {
 		return model.Task{}, notFoundOr(err, "scan task")
 	}
 
+	normalizeTaskStatus(&v)
+
 	return v, nil
+}
+
+func normalizeTaskStatus(task *model.Task) {
+	if task.ExpiredAt != nil {
+		task.Status = model.StatusExpired
+	}
 }

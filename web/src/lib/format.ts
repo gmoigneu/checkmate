@@ -1,4 +1,5 @@
 export const contextPalette = ["#C05E3C", "#6E7A4F", "#C39A3A", "#6A6B7C"];
+const todayFormatters = new Map<string, Intl.DateTimeFormat>();
 
 export function formatMinutes(minutes: number | null | undefined) {
 	if (!minutes) return "No estimate";
@@ -27,12 +28,19 @@ export function daysLate(date: string | null) {
 	);
 }
 
-export function todayString() {
-	return new Intl.DateTimeFormat("en-CA", {
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-	}).format(new Date());
+export function todayString(timeZone?: string) {
+	const key = timeZone ?? "";
+	let formatter = todayFormatters.get(key);
+	if (!formatter) {
+		formatter = new Intl.DateTimeFormat("en-CA", {
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			timeZone,
+		});
+		todayFormatters.set(key, formatter);
+	}
+	return formatter.format(new Date());
 }
 
 export function displayDate(date: string) {
