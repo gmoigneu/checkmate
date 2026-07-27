@@ -15,6 +15,32 @@ curl -s localhost:8080/healthz
 With `-token`, `user create` prints an API token once. Only the token's SHA-256
 is stored, so copy it there and then.
 
+### Local fixtures
+
+Reset the local database and create representative data for the account you use
+to sign in:
+
+```sh
+make fixtures ACCOUNT=g@moigneu.com
+```
+
+The command is development-only and destructive: it clears all local users,
+sessions, tokens, OAuth clients, and task data before provisioning the supplied
+account. It then prints a new API token and loads contexts, projects in every
+lifecycle state, people, active/paused/finished recurrences, every task
+kind/status/priority/source/capture method, and completed or cancelled history
+spread across the previous three calendar months. Dates are relative to the day
+the command runs, so overdue, today, and upcoming views stay useful.
+
+```sh
+go run ./cmd/checkmate fixtures load g@moigneu.com
+go run ./cmd/checkmate fixtures load -name "G/" -timezone Europe/Paris g@moigneu.com
+```
+
+When Google sign-in is configured, use the same email address here as your
+Google account. The first sign-in links that verified identity to the provisioned
+account and opens the seeded data.
+
 ## Layout
 
 ```
