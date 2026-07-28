@@ -1,5 +1,9 @@
 export const contextPalette = ["#C05E3C", "#6E7A4F", "#C39A3A", "#6A6B7C"];
 const todayFormatters = new Map<string, Intl.DateTimeFormat>();
+const timestampFormatter = new Intl.DateTimeFormat(undefined, {
+	dateStyle: "medium",
+	timeStyle: "short",
+});
 
 export function formatMinutes(minutes: number | null | undefined) {
 	if (!minutes) return "No estimate";
@@ -16,6 +20,10 @@ export function formatDate(date: string | null) {
 		day: "numeric",
 		month: "short",
 	}).format(new Date(`${date}T12:00:00`));
+}
+
+export function formatTimestamp(timestamp: string) {
+	return timestampFormatter.format(new Date(timestamp));
 }
 
 export function daysLate(date: string | null) {

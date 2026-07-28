@@ -9,6 +9,7 @@ import type {
 	ProjectStatus,
 	Recurrence,
 	Task,
+	TaskActivity,
 } from "./types";
 
 export class ApiError extends Error {
@@ -110,6 +111,11 @@ export const api = {
 	people: () => request<Collection<Person>>("/v1/people?limit=200"),
 	tasks: (params: URLSearchParams) =>
 		request<Collection<Task>>(`/v1/tasks?${params}`),
+	activity: (cursor?: string) => {
+		const query = new URLSearchParams({ limit: "100" });
+		if (cursor) query.set("cursor", cursor);
+		return request<Collection<TaskActivity>>(`/v1/activity?${query}`);
+	},
 	routines: () =>
 		request<Collection<Recurrence>>("/v1/recurrences?kind=routine&limit=200"),
 	createRoutine: (body: Record<string, unknown>) =>

@@ -108,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 
 	api.HandleFunc("GET /v1/sync", s.handleSync)
 	api.HandleFunc("GET /v1/brief", s.handleBrief)
+	api.HandleFunc("GET /v1/activity", s.handleListTaskActivity)
 
 	api.HandleFunc("GET /v1/me", s.handleMe)
 	api.HandleFunc("PATCH /v1/me", s.handleUpdateMe)

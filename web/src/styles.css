@@ -846,6 +846,48 @@ kbd {
   background: var(--surface-hover);
 }
 
+.cm-activity-list {
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  background: var(--surface-card);
+}
+
+.cm-activity-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.cm-activity-row:last-child {
+  border-bottom: 0;
+}
+
+.cm-activity-marker {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+.cm-activity-created,
+.cm-activity-restored {
+  background: var(--task-done-bg);
+  color: var(--task-done-fg);
+}
+
+.cm-activity-deleted {
+  background: var(--task-cancelled-bg);
+  color: var(--task-cancelled-fg);
+}
+
 .cm-task-row-compact {
   min-height: 36px;
 }
@@ -906,6 +948,17 @@ kbd {
 .cm-status-chevron {
   margin-left: 1px;
   opacity: .65;
+}
+
+@media (max-width: 639px) {
+  .cm-activity-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .cm-activity-row > time {
+    grid-column: 2;
+    text-align: left;
+  }
 }
 
 .cm-status-inbox {

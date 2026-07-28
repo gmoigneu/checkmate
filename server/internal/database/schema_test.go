@@ -97,7 +97,7 @@ func TestMigrationsApply(t *testing.T) {
 
 	want := []string{
 		"users", "api_tokens", "sources", "contexts", "projects",
-		"people", "recurrences", "tasks", "change_seq",
+		"people", "recurrences", "tasks", "task_activity", "change_seq",
 	}
 
 	for _, table := range want {
@@ -118,6 +118,93 @@ func TestMigrationsApply(t *testing.T) {
 
 	if sources != 6 {
 		t.Errorf("seeded sources = %d, want 6", sources)
+	}
+}
+
+func TestTaskActivityTriggersTrackMutationsOnce(t *testing.T) {
+	db := newTestDB(t)
+	uid := newUser(t, db)
+	cid := newContext(t, db, uid, "work")
+	tid := newTask(t, db, uid, cid, "draft proposal")
+
+	if _, err := db.Exec(
+		`UPDATE tasks
+		 SET title = 'send proposal', status = 'done',
+		     completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		 WHERE id = ?`,
+		tid,
+	); err != nil {
+		t.Fatalf("update task: %v", err)
+	}
+	if _, err := db.Exec(
+		`UPDATE tasks
+		 SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+		     deleted_batch = 'batch'
+		 WHERE id = ?`,
+		tid,
+	); err != nil {
+		t.Fatalf("delete task: %v", err)
+	}
+	if _, err := db.Exec(
+		`UPDATE tasks SET deleted_at = NULL, deleted_batch = NULL WHERE id = ?`,
+		tid,
+	); err != nil {
+		t.Fatalf("restore task: %v", err)
+	}
+
+	rows, err := db.Query(`
+		SELECT action, changed_fields, status_before, status_after
+		FROM task_activity
+		WHERE task_id = ?
+		ORDER BY id`,
+		tid,
+	)
+	if err != nil {
+		t.Fatalf("list activity: %v", err)
+	}
+	defer rows.Close()
+
+	type activity struct {
+		action, fields string
+		before, after  sql.NullString
+	}
+	var got []activity
+	for rows.Next() {
+		var item activity
+		if err := rows.Scan(&item.action, &item.fields, &item.before, &item.after); err != nil {
+			t.Fatalf("scan activity: %v", err)
+		}
+		got = append(got, item)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read activity: %v", err)
+	}
+
+	if len(got) != 4 {
+		t.Fatalf("activity rows = %d, want 4 (create, update, delete, restore): %#v", len(got), got)
+	}
+	if got[0].action != "created" || got[1].action != "updated" ||
+		got[2].action != "deleted" || got[3].action != "restored" {
+		t.Errorf("activity actions = %q, %q, %q, %q", got[0].action, got[1].action, got[2].action, got[3].action)
+	}
+	if got[1].fields != "title,status" {
+		t.Errorf("update fields = %q, want title,status", got[1].fields)
+	}
+	if !got[1].before.Valid || got[1].before.String != "todo" ||
+		!got[1].after.Valid || got[1].after.String != "done" {
+		t.Errorf("status transition = %#v -> %#v, want todo -> done", got[1].before, got[1].after)
+	}
+
+	if _, err := db.Exec(`DELETE FROM users WHERE id = ?`, uid); err != nil {
+		t.Fatalf("delete activity owner: %v", err)
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT count(*) FROM task_activity WHERE user_id = ?`, uid).
+		Scan(&remaining); err != nil {
+		t.Fatalf("count activity after user deletion: %v", err)
+	}
+	if remaining != 0 {
+		t.Errorf("activity rows after user deletion = %d, want 0", remaining)
 	}
 }
 
