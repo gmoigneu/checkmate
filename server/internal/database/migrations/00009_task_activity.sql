@@ -107,6 +107,7 @@ BEGIN
             CASE WHEN OLD.reference_url IS NOT NEW.reference_url THEN 'reference_url,' ELSE '' END ||
             CASE WHEN OLD.reference_label IS NOT NEW.reference_label THEN 'reference_label,' ELSE '' END ||
             CASE WHEN OLD.deleted_at IS NOT NEW.deleted_at THEN 'deleted_at,' ELSE '' END ||
+            CASE WHEN OLD.deleted_batch IS NOT NEW.deleted_batch THEN 'deleted_batch,' ELSE '' END ||
             CASE WHEN OLD.expired_at IS NOT NEW.expired_at THEN 'expired_at,' ELSE '' END,
             ','
         ),

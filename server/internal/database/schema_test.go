@@ -137,6 +137,12 @@ func TestTaskActivityTriggersTrackMutationsOnce(t *testing.T) {
 		t.Fatalf("update task: %v", err)
 	}
 	if _, err := db.Exec(
+		`UPDATE tasks SET deleted_batch = 'pending-batch' WHERE id = ?`,
+		tid,
+	); err != nil {
+		t.Fatalf("batch task: %v", err)
+	}
+	if _, err := db.Exec(
 		`UPDATE tasks
 		 SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
 		     deleted_batch = 'batch'
@@ -180,15 +186,22 @@ func TestTaskActivityTriggersTrackMutationsOnce(t *testing.T) {
 		t.Fatalf("read activity: %v", err)
 	}
 
-	if len(got) != 4 {
-		t.Fatalf("activity rows = %d, want 4 (create, update, delete, restore): %#v", len(got), got)
+	if len(got) != 5 {
+		t.Fatalf("activity rows = %d, want 5 (create, update, batch, delete, restore): %#v", len(got), got)
 	}
 	if got[0].action != "created" || got[1].action != "updated" ||
-		got[2].action != "deleted" || got[3].action != "restored" {
-		t.Errorf("activity actions = %q, %q, %q, %q", got[0].action, got[1].action, got[2].action, got[3].action)
+		got[2].action != "updated" || got[3].action != "deleted" ||
+		got[4].action != "restored" {
+		t.Errorf(
+			"activity actions = %q, %q, %q, %q, %q",
+			got[0].action, got[1].action, got[2].action, got[3].action, got[4].action,
+		)
 	}
 	if got[1].fields != "title,status" {
 		t.Errorf("update fields = %q, want title,status", got[1].fields)
+	}
+	if got[2].fields != "deleted_batch" {
+		t.Errorf("batch fields = %q, want deleted_batch", got[2].fields)
 	}
 	if !got[1].before.Valid || got[1].before.String != "todo" ||
 		!got[1].after.Valid || got[1].after.String != "done" {
