@@ -28,7 +28,13 @@ import {
 	Sunrise,
 	X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import {
 	ContextActionsMenu,
 	ContextProjectSettingsPage,
@@ -49,6 +55,10 @@ import {
 	buildBriefSections,
 } from "@/lib/brief-sections";
 import { parseCapture } from "@/lib/capture";
+import {
+	type CaptureDefaults,
+	captureDefaultsForPath,
+} from "@/lib/capture-defaults";
 import {
 	contextPalette,
 	daysLate,
@@ -86,11 +96,6 @@ type Page =
 	| "organization"
 	| "context"
 	| "project";
-
-type CaptureDefaults = {
-	contextId?: string;
-	projectId?: string;
-};
 
 const navItems: Array<{
 	page: Page;
@@ -212,17 +217,28 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		queryFn: () => api.brief(todayString()),
 		retry: false,
 	});
-	const openCapture = (defaults: CaptureDefaults = {}) => {
-		setCaptureDefaults(defaults);
-		setCaptureOpen(true);
-	};
+	const contextualCaptureDefaults = useMemo(
+		() =>
+			captureDefaultsForPath(
+				location.pathname,
+				contexts.data?.data ?? [],
+				projects.data?.data ?? [],
+			),
+		[location.pathname, contexts.data?.data, projects.data?.data],
+	);
+	const openCapture = useCallback(
+		(defaults: CaptureDefaults = {}) => {
+			setCaptureDefaults({ ...contextualCaptureDefaults, ...defaults });
+			setCaptureOpen(true);
+		},
+		[contextualCaptureDefaults],
+	);
 
 	useEffect(() => {
 		const handler = (event: KeyboardEvent) => {
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
 				event.preventDefault();
-				setCaptureDefaults({});
-				setCaptureOpen(true);
+				openCapture();
 			}
 			const target = event.target;
 			const isTypingTarget =
@@ -237,13 +253,12 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				!event.shiftKey &&
 				!isTypingTarget
 			) {
-				setCaptureDefaults({});
-				setCaptureOpen(true);
+				openCapture();
 			}
 		};
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
-	}, []);
+	}, [openCapture]);
 
 	const needsAuthentication =
 		me.error instanceof ApiError && me.error.status === 401;
@@ -276,7 +291,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 					contexts={appContexts}
 					projectCount={appProjects.length}
 					projectsLoaded={projects.isSuccess}
-					onOpenCapture={() => setCaptureOpen(true)}
+					onOpenCapture={() => openCapture()}
 				/>
 			);
 		}
@@ -297,6 +312,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		if (page === "repeating")
 			return (
 				<TaskListPage
+					key="repeating"
 					title="Repeating"
 					description="Recurring work, in the context where it belongs."
 					contexts={appContexts}
@@ -306,6 +322,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		if (page === "blocked")
 			return (
 				<TaskListPage
+					key="blocked"
 					title="Blocked"
 					description="Work that needs something else to move first."
 					contexts={appContexts}
@@ -338,9 +355,11 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 			);
 		return (
 			<TaskListPage
+				key="upcoming"
 				title="Upcoming"
 				description="Everything ahead, with an honest order."
 				contexts={appContexts}
+				defaultStatus="todo,in_progress"
 			/>
 		);
 	};
@@ -419,6 +438,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				<Plus className="size-6" />
 			</Button>
 			<CaptureDialog
+				key={`${captureOpen ? "open" : "closed"}:${captureDefaults.contextId ?? ""}:${captureDefaults.projectId ?? ""}`}
 				open={captureOpen}
 				onOpenChange={(open) => {
 					setCaptureOpen(open);
@@ -1238,30 +1258,52 @@ function CaptureDialog({
 	const queryClient = useQueryClient();
 	const [value, setValue] = useState("");
 	const [priority, setPriority] = useState<TaskPriority | "">("");
+	const [contextOverrideId, setContextOverrideId] = useState<
+		string | null | undefined
+	>(undefined);
+	const [projectOverrideId, setProjectOverrideId] = useState<
+		string | null | undefined
+	>(undefined);
+	const [statusOverride, setStatusOverride] = useState<TaskStatus>();
 	const parsed = useMemo(
 		() => parseCapture(value, contexts, people),
 		[value, contexts, people],
 	);
-	const defaultContext = contexts.find(
-		(context) => context.id === defaultContextId,
+	const selectedContextId =
+		contextOverrideId === undefined
+			? (parsed.context?.id ?? defaultContextId)
+			: (contextOverrideId ?? undefined);
+	const selectedContext = contexts.find(
+		(context) => context.id === selectedContextId,
 	);
-	const selectedContext = parsed.context ?? defaultContext;
+	const candidateProjectId =
+		projectOverrideId === undefined
+			? defaultProjectId
+			: (projectOverrideId ?? undefined);
 	const selectedProject = projects.find(
 		(project) =>
-			project.id === defaultProjectId &&
+			project.id === candidateProjectId &&
 			project.context_id === selectedContext?.id,
 	);
+	const availableProjects = projects.filter(
+		(project) => project.context_id === selectedContext?.id,
+	);
+	const automaticStatus: TaskStatus = parsed.person
+		? "delegated"
+		: selectedContext
+			? "todo"
+			: "inbox";
+	const selectedStatus =
+		statusOverride === "delegated" && !parsed.person
+			? automaticStatus
+			: (statusOverride ?? automaticStatus);
 	const create = useMutation({
 		mutationFn: () =>
 			api.createTask({
 				title: parsed.title || value.trim(),
 				context_id: selectedContext?.id ?? null,
 				project_id: selectedProject?.id ?? null,
-				status: parsed.person
-					? "delegated"
-					: selectedContext
-						? "todo"
-						: "inbox",
+				status: selectedStatus,
 				delegated_to_id: parsed.person?.id,
 				source: parsed.source,
 				estimate_minutes: parsed.estimate_minutes,
@@ -1334,22 +1376,64 @@ function CaptureDialog({
 							<kbd>30m</kbd> <kbd>tomorrow</kbd> or <kbd>&gt;tomorrow</kbd>
 						</div>
 					)}
-					<div className="flex items-center justify-between gap-3 px-3 pb-2 pt-1">
-						<select
-							value={priority}
-							onChange={(event) =>
-								setPriority(event.target.value as TaskPriority | "")
-							}
-							className="h-8 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground"
-							aria-label="Task priority"
-						>
-							<option value="">No priority</option>
-							{priorityOptions.map((option) => (
-								<option key={option.value} value={option.value}>
-									{option.label}
+					<div className="flex flex-wrap items-center justify-between gap-3 px-3 pb-2 pt-1">
+						<div className="flex flex-wrap items-center gap-2">
+							<select
+								value={selectedContext?.id ?? ""}
+								onChange={(event) => {
+									setContextOverrideId(event.target.value || null);
+									setProjectOverrideId(null);
+								}}
+								className="h-8 max-w-40 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground"
+								aria-label="Task context"
+							>
+								<option value="">Inbox / no context</option>
+								{contexts.map((context) => (
+									<option key={context.id} value={context.id}>
+										{context.name}
+									</option>
+								))}
+							</select>
+							<select
+								value={selectedProject?.id ?? ""}
+								onChange={(event) =>
+									setProjectOverrideId(event.target.value || null)
+								}
+								disabled={!selectedContext}
+								className="h-8 max-w-40 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+								aria-label="Task project"
+							>
+								<option value="">
+									{selectedContext ? "No project" : "Choose a context first"}
 								</option>
-							))}
-						</select>
+								{availableProjects.map((project) => (
+									<option key={project.id} value={project.id}>
+										{project.name}
+									</option>
+								))}
+							</select>
+							<TaskStatusMenu
+								status={selectedStatus}
+								onStatusChange={setStatusOverride}
+								taskTitle={parsed.title || value.trim() || "new task"}
+								canDelegate={Boolean(parsed.person)}
+							/>
+							<select
+								value={priority}
+								onChange={(event) =>
+									setPriority(event.target.value as TaskPriority | "")
+								}
+								className="h-8 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground"
+								aria-label="Task priority"
+							>
+								<option value="">No priority</option>
+								{priorityOptions.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</div>
 						<Button
 							disabled={!value.trim() || create.isPending}
 							onClick={() => create.mutate()}
@@ -1851,15 +1935,17 @@ function TaskListPage({
 	contexts,
 	fixedStatus,
 	kind,
+	defaultStatus = "",
 }: {
 	title: string;
 	description: string;
 	contexts: Context[];
 	fixedStatus?: TaskStatus;
 	kind?: Task["kind"];
+	defaultStatus?: string;
 }) {
 	const [query, setQuery] = useState("");
-	const [status, setStatus] = useState("");
+	const [status, setStatus] = useState(defaultStatus);
 	const [priority, setPriority] = useState("");
 	const [contextId, setContextId] = useState<string>();
 	const parameters = new URLSearchParams({ limit: "200" });

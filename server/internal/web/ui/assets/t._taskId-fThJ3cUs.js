@@ -1,1 +1,0 @@
-import{U as e}from"./dist-CaejBv-z.js";import{t}from"./checkmate-app-BCd2cSrT.js";import{t as n}from"./t._taskId-Dyg2slGO.js";var r=e();function i(){let{taskId:e}=n.useParams();return(0,r.jsx)(t,{detailId:e})}export{i as component};
