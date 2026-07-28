@@ -57,7 +57,11 @@ func TestLoadCreatesRepresentativeDataset(t *testing.T) {
 	assertValues(t, db, `
 		SELECT DISTINCT status
 		FROM tasks
-		WHERE user_id = ? AND deleted_at IS NULL`, user.ID, model.TaskStatuses)
+		WHERE user_id = ? AND deleted_at IS NULL`, user.ID, model.WritableTaskStatuses)
+	assertValues(t, db, `
+		SELECT DISTINCT kind
+		FROM recurrences
+		WHERE user_id = ? AND deleted_at IS NULL`, user.ID, model.RecurrenceKinds)
 	assertValues(t, db, `
 		SELECT DISTINCT priority
 		FROM tasks
@@ -83,6 +87,7 @@ func TestLoadCreatesRepresentativeDataset(t *testing.T) {
 		finishedRecurrences int
 		archivedContexts    int
 		tombstonedTasks     int
+		expiredTasks        int
 		earliestCompletion  string
 	)
 	err = db.QueryRowContext(ctx, `
@@ -129,6 +134,16 @@ func TestLoadCreatesRepresentativeDataset(t *testing.T) {
 	}
 	if tombstonedTasks == 0 {
 		t.Fatal("expected a tombstoned task")
+	}
+
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM tasks
+		 WHERE user_id = ? AND status = ? AND expired_at IS NOT NULL`,
+		user.ID, model.StatusCancelled).Scan(&expiredTasks); err != nil {
+		t.Fatal(err)
+	}
+	if expiredTasks == 0 {
+		t.Fatal("expected an expired routine task")
 	}
 
 	if err := db.QueryRowContext(ctx,
