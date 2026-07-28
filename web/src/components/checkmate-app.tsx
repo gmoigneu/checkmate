@@ -298,6 +298,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		if (page === "repeating")
 			return (
 				<TaskListPage
+					key="repeating"
 					title="Repeating"
 					description="Recurring work, in the context where it belongs."
 					contexts={appContexts}
@@ -307,6 +308,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		if (page === "blocked")
 			return (
 				<TaskListPage
+					key="blocked"
 					title="Blocked"
 					description="Work that needs something else to move first."
 					contexts={appContexts}
@@ -339,9 +341,11 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 			);
 		return (
 			<TaskListPage
+				key="upcoming"
 				title="Upcoming"
 				description="Everything ahead, with an honest order."
 				contexts={appContexts}
+				defaultStatus="todo,in_progress"
 			/>
 		);
 	};
@@ -1664,15 +1668,17 @@ function TaskListPage({
 	contexts,
 	fixedStatus,
 	kind,
+	defaultStatus = "",
 }: {
 	title: string;
 	description: string;
 	contexts: Context[];
 	fixedStatus?: TaskStatus;
 	kind?: Task["kind"];
+	defaultStatus?: string;
 }) {
 	const [query, setQuery] = useState("");
-	const [status, setStatus] = useState("");
+	const [status, setStatus] = useState(defaultStatus);
 	const [priority, setPriority] = useState("");
 	const [contextId, setContextId] = useState<string>();
 	const parameters = new URLSearchParams({ limit: "200" });
