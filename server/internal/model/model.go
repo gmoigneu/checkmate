@@ -132,6 +132,18 @@ type Task struct {
 	Rev         int64   `json:"rev"`
 }
 
+// TaskActivity is one immutable record of a task mutation.
+type TaskActivity struct {
+	ID            int64    `json:"id"`
+	TaskID        string   `json:"task_id"`
+	TaskTitle     string   `json:"task_title"`
+	Action        string   `json:"action"`
+	ChangedFields []string `json:"changed_fields"`
+	StatusBefore  *string  `json:"status_before"`
+	StatusAfter   *string  `json:"status_after"`
+	OccurredAt    string   `json:"occurred_at"`
+}
+
 // Task statuses.
 const (
 	StatusInbox      = "inbox"

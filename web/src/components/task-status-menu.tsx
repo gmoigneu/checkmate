@@ -14,7 +14,7 @@ import {
 import type { TaskStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-function StatusBadge({
+export function StatusBadge({
 	status,
 	menuTrigger,
 }: {

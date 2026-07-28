@@ -4,12 +4,14 @@ import {
 	ArrowLeft,
 	ArrowRight,
 	CalendarDays,
+	CheckCheck,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
 	type Circle,
 	CircleDotDashed,
 	Command,
+	History,
 	Hourglass,
 	Inbox,
 	LoaderCircle,
@@ -40,7 +42,7 @@ import {
 	ProjectActionsMenu,
 } from "@/components/context-project-management";
 import { RoutinePage } from "@/components/routine-page";
-import { TaskStatusMenu } from "@/components/task-status-menu";
+import { StatusBadge, TaskStatusMenu } from "@/components/task-status-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -63,6 +65,7 @@ import {
 	displayDate,
 	formatDate,
 	formatMinutes,
+	formatTimestamp,
 	todayString,
 } from "@/lib/format";
 import { taskListStatusFilters, taskStatusOptions } from "@/lib/status";
@@ -73,6 +76,7 @@ import type {
 	Person,
 	Project,
 	Task,
+	TaskActivity,
 	TaskPriority,
 	TaskStatus,
 } from "@/lib/types";
@@ -82,6 +86,8 @@ type Page =
 	| "brief"
 	| "inbox"
 	| "tasks"
+	| "done"
+	| "activity"
 	| "waiting"
 	| "routine"
 	| "repeating"
@@ -100,6 +106,8 @@ const navItems: Array<{
 	{ page: "brief", label: "Brief", icon: Sun, href: "/" },
 	{ page: "inbox", label: "Inbox", icon: Inbox, href: "/inbox" },
 	{ page: "tasks", label: "Upcoming", icon: CalendarDays, href: "/tasks" },
+	{ page: "done", label: "Done", icon: CheckCheck, href: "/done" },
+	{ page: "activity", label: "Activity", icon: History, href: "/activity" },
 ];
 
 const priorityOptions: Array<{ value: TaskPriority; label: string }> = [
@@ -118,6 +126,8 @@ function refreshTaskQueries(
 		["brief"],
 		["inbox"],
 		["tasks"],
+		["done"],
+		["activity"],
 		["context-tasks"],
 		["project-tasks"],
 	]) {
@@ -165,6 +175,8 @@ function dismissProjectOnboarding() {
 function pageForPath(pathname: string): Page {
 	if (pathname === "/") return "brief";
 	if (pathname.startsWith("/inbox")) return "inbox";
+	if (pathname.startsWith("/done")) return "done";
+	if (pathname.startsWith("/activity")) return "activity";
 	if (pathname.startsWith("/waiting")) return "waiting";
 	if (pathname.startsWith("/routine")) return "routine";
 	if (pathname.startsWith("/repeating")) return "repeating";
@@ -285,6 +297,8 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 		}
 		if (page === "inbox")
 			return <InboxPage contexts={appContexts} people={appPeople} />;
+		if (page === "done") return <DonePage contexts={appContexts} />;
+		if (page === "activity") return <ActivityPage />;
 		if (page === "waiting") return <WaitingPage contexts={appContexts} />;
 		if (page === "routine")
 			return (
@@ -495,7 +509,9 @@ function Sidebar({
 									? (brief?.totals.overdue ?? 0) +
 										(brief?.totals.due_today ?? 0) +
 										(brief?.totals.planned ?? 0)
-									: (brief?.totals.inbox ?? 0)
+									: item.page === "inbox"
+										? (brief?.totals.inbox ?? 0)
+										: 0
 							}
 						/>
 					</Link>
@@ -1097,12 +1113,14 @@ function TaskRow({
 	done,
 	compact,
 	contexts,
+	showCompletedAt,
 }: {
 	task: BriefDisplayTask;
 	overdue?: boolean;
 	done?: boolean;
 	compact?: boolean;
 	contexts?: Context[];
+	showCompletedAt?: boolean;
 }) {
 	const queryClient = useQueryClient();
 	const isDone =
@@ -1206,6 +1224,14 @@ function TaskRow({
 							? ` · ${daysLate(task.due_on)}d`
 							: ""}
 					</span>
+				) : null}
+				{showCompletedAt && task.completed_at ? (
+					<time
+						dateTime={task.completed_at}
+						className="cm-task-meta ml-auto tabular-nums"
+					>
+						Done {formatTimestamp(task.completed_at)}
+					</time>
 				) : null}
 			</Link>
 		</div>
@@ -1659,6 +1685,247 @@ function TriageCard({
 				</div>
 			</article>
 		</section>
+	);
+}
+
+function CursorPagination({
+	page,
+	hasPrevious,
+	hasNext,
+	onPrevious,
+	onNext,
+}: {
+	page: number;
+	hasPrevious: boolean;
+	hasNext: boolean;
+	onPrevious: () => void;
+	onNext: () => void;
+}) {
+	if (!hasPrevious && !hasNext) return null;
+
+	return (
+		<nav
+			className="mt-5 flex items-center justify-between"
+			aria-label="Pagination"
+		>
+			<Button variant="outline" disabled={!hasPrevious} onClick={onPrevious}>
+				<ChevronLeft className="size-4" />
+				Previous
+			</Button>
+			<span className="text-xs text-muted-foreground">Page {page}</span>
+			<Button variant="outline" disabled={!hasNext} onClick={onNext}>
+				Next
+				<ChevronRight className="size-4" />
+			</Button>
+		</nav>
+	);
+}
+
+function DonePage({ contexts }: { contexts: Context[] }) {
+	const [cursorStack, setCursorStack] = useState([""]);
+	const cursor = cursorStack.at(-1) ?? "";
+	const tasks = useQuery({
+		queryKey: ["done", cursor],
+		queryFn: () => {
+			const parameters = new URLSearchParams({
+				status: "done",
+				sort: "completed_at",
+				order: "desc",
+				limit: "100",
+			});
+			if (cursor) parameters.set("cursor", cursor);
+			return api.tasks(parameters);
+		},
+	});
+	const nextCursor = tasks.data?.next_cursor;
+
+	return (
+		<section>
+			<div className="mb-8">
+				<p className="mb-2 text-sm font-medium text-muted-foreground">
+					Finished work, newest first.
+				</p>
+				<h1 className="font-display text-4xl tracking-tight">Done</h1>
+			</div>
+			<p className="mb-3 text-xs text-muted-foreground">
+				{tasks.data?.data.length ?? 0} tasks on this page · ordered by
+				completion time
+			</p>
+			{tasks.isLoading ? (
+				<LoadingPage />
+			) : tasks.error ? (
+				<TaskQueryError onRetry={() => tasks.refetch()} />
+			) : tasks.data?.data.length ? (
+				<>
+					<div className="overflow-hidden rounded-2xl border border-border bg-card">
+						{tasks.data.data.map((task) => (
+							<TaskRow
+								key={task.id}
+								task={task}
+								contexts={contexts}
+								showCompletedAt
+							/>
+						))}
+					</div>
+					<CursorPagination
+						page={cursorStack.length}
+						hasPrevious={cursorStack.length > 1}
+						hasNext={Boolean(nextCursor)}
+						onPrevious={() => setCursorStack((stack) => stack.slice(0, -1))}
+						onNext={() => {
+							if (nextCursor) {
+								setCursorStack((stack) => [...stack, nextCursor]);
+							}
+						}}
+					/>
+				</>
+			) : (
+				<EmptyPage
+					title="Nothing is done yet"
+					description="Tasks appear here when you mark them Done."
+				/>
+			)}
+		</section>
+	);
+}
+
+const activityActionLabels: Record<TaskActivity["action"], string> = {
+	created: "Created",
+	updated: "Updated",
+	deleted: "Deleted",
+	restored: "Restored",
+};
+
+const activityFieldLabels: Record<string, string> = {
+	blocked_by_id: "blocker",
+	capture_method: "capture method",
+	context_id: "context",
+	day_slot: "day slot",
+	delegated_to_id: "delegate",
+	details: "details",
+	due_on: "due date",
+	estimate_minutes: "estimate",
+	expired_at: "expiration",
+	occurrence_on: "occurrence date",
+	parent_id: "parent",
+	planned_on: "planned date",
+	priority: "priority",
+	project_id: "project",
+	recurrence_id: "recurrence",
+	reference_label: "reference label",
+	reference_url: "reference URL",
+	slot_order: "slot order",
+	source: "source",
+	title: "title",
+};
+
+function ActivityPage() {
+	const [cursorStack, setCursorStack] = useState([""]);
+	const cursor = cursorStack.at(-1) ?? "";
+	const activity = useQuery({
+		queryKey: ["activity", cursor],
+		queryFn: () => api.activity(cursor),
+	});
+	const nextCursor = activity.data?.next_cursor;
+
+	return (
+		<section>
+			<div className="mb-8">
+				<p className="mb-2 text-sm font-medium text-muted-foreground">
+					Every change to your tasks, in one place.
+				</p>
+				<h1 className="font-display text-4xl tracking-tight">Activity</h1>
+			</div>
+			{activity.isLoading ? (
+				<LoadingPage />
+			) : activity.error ? (
+				<TaskQueryError onRetry={() => activity.refetch()} />
+			) : activity.data?.data.length ? (
+				<>
+					<div className="cm-activity-list">
+						{activity.data.data.map((item) => (
+							<ActivityRow key={item.id} item={item} />
+						))}
+					</div>
+					<CursorPagination
+						page={cursorStack.length}
+						hasPrevious={cursorStack.length > 1}
+						hasNext={Boolean(nextCursor)}
+						onPrevious={() => setCursorStack((stack) => stack.slice(0, -1))}
+						onNext={() => {
+							if (nextCursor) {
+								setCursorStack((stack) => [...stack, nextCursor]);
+							}
+						}}
+					/>
+				</>
+			) : (
+				<EmptyPage
+					title="No activity yet"
+					description="Task changes made after this update will appear here."
+				/>
+			)}
+		</section>
+	);
+}
+
+function ActivityRow({ item }: { item: TaskActivity }) {
+	const otherFields: string[] = [];
+	for (const field of item.changed_fields) {
+		if (field !== "status" && field !== "deleted_at") {
+			otherFields.push(
+				activityFieldLabels[field] ?? field.replaceAll("_", " "),
+			);
+		}
+	}
+	const statusChanged =
+		item.status_before &&
+		item.status_after &&
+		item.status_before !== item.status_after;
+
+	return (
+		<article className="cm-activity-row">
+			<span className={`cm-activity-marker cm-activity-${item.action}`}>
+				{item.action === "created" || item.action === "restored" ? (
+					<CheckCheck className="size-4" />
+				) : item.action === "deleted" ? (
+					<X className="size-4" />
+				) : (
+					<History className="size-4" />
+				)}
+			</span>
+			<div className="min-w-0 flex-1">
+				<p className="text-sm">
+					<span className="font-medium">
+						{activityActionLabels[item.action]}
+					</span>{" "}
+					<span className="text-[var(--text-secondary)]">
+						{item.task_title}
+					</span>
+				</p>
+				{statusChanged ? (
+					<div className="mt-2 flex flex-wrap items-center gap-2">
+						<StatusBadge status={item.status_before as TaskStatus} />
+						<ArrowRight
+							className="size-3.5 text-[var(--text-tertiary)]"
+							aria-hidden="true"
+						/>
+						<StatusBadge status={item.status_after as TaskStatus} />
+					</div>
+				) : null}
+				{otherFields.length ? (
+					<p className="mt-1.5 text-xs text-muted-foreground">
+						Changed {otherFields.join(", ")}
+					</p>
+				) : null}
+			</div>
+			<time
+				dateTime={item.occurred_at}
+				className="shrink-0 text-right text-xs text-muted-foreground tabular-nums"
+			>
+				{formatTimestamp(item.occurred_at)}
+			</time>
+		</article>
 	);
 }
 

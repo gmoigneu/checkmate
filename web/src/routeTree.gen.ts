@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as BlockedRouteImport } from './routes/blocked'
+import { Route as DoneRouteImport } from './routes/done'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as RepeatingRouteImport } from './routes/repeating'
 import { Route as RoutineRouteImport } from './routes/routine'
@@ -28,9 +30,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ActivityRoute = ActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BlockedRoute = BlockedRouteImport.update({
   id: '/blocked',
   path: '/blocked',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoneRoute = DoneRouteImport.update({
+  id: '/done',
+  path: '/done',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InboxRoute = InboxRouteImport.update({
@@ -91,7 +103,9 @@ const TTaskIdRoute = TTaskIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
   '/blocked': typeof BlockedRoute
+  '/done': typeof DoneRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/routine': typeof RoutineRoute
@@ -106,7 +120,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
   '/blocked': typeof BlockedRoute
+  '/done': typeof DoneRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/routine': typeof RoutineRoute
@@ -122,7 +138,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
   '/blocked': typeof BlockedRoute
+  '/done': typeof DoneRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/routine': typeof RoutineRoute
@@ -139,7 +157,9 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/activity'
     | '/blocked'
+    | '/done'
     | '/inbox'
     | '/repeating'
     | '/routine'
@@ -154,7 +174,9 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/activity'
     | '/blocked'
+    | '/done'
     | '/inbox'
     | '/repeating'
     | '/routine'
@@ -169,7 +191,9 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/activity'
     | '/blocked'
+    | '/done'
     | '/inbox'
     | '/repeating'
     | '/routine'
@@ -185,7 +209,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ActivityRoute: typeof ActivityRoute
   BlockedRoute: typeof BlockedRoute
+  DoneRoute: typeof DoneRoute
   InboxRoute: typeof InboxRoute
   RepeatingRoute: typeof RepeatingRoute
   RoutineRoute: typeof RoutineRoute
@@ -207,11 +233,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/activity': {
+      id: '/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof ActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/blocked': {
       id: '/blocked'
       path: '/blocked'
       fullPath: '/blocked'
       preLoaderRoute: typeof BlockedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/done': {
+      id: '/done'
+      path: '/done'
+      fullPath: '/done'
+      preLoaderRoute: typeof DoneRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/inbox': {
@@ -308,7 +348,9 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ActivityRoute: ActivityRoute,
   BlockedRoute: BlockedRoute,
+  DoneRoute: DoneRoute,
   InboxRoute: InboxRoute,
   RepeatingRoute: RepeatingRoute,
   RoutineRoute: RoutineRoute,

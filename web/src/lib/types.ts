@@ -75,6 +75,19 @@ export interface Task {
 	deleted_at: string | null;
 }
 
+export type TaskActivityAction = "created" | "updated" | "deleted" | "restored";
+
+export interface TaskActivity {
+	id: number;
+	task_id: string;
+	task_title: string;
+	action: TaskActivityAction;
+	changed_fields: string[];
+	status_before: TaskStatus | null;
+	status_after: TaskStatus | null;
+	occurred_at: string;
+}
+
 export interface Recurrence {
 	id: string;
 	kind: "classic" | "routine";

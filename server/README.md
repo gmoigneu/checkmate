@@ -408,6 +408,7 @@ All `/v1` routes need a bearer token or a session cookie. `/healthz` and the
 
 ```
 GET    /v1/sources
+GET    /v1/activity
 GET    /v1/{contexts,projects,people,recurrences,tasks}
 POST   /v1/{contexts,projects,people,recurrences,tasks}
 GET    /v1/{...}/{id}
@@ -421,6 +422,10 @@ POST   /v1/people/{id}/merge          fold a duplicate delegate into another
 
 Collections return `{"data": [...], "next_cursor": "<id>|null"}`. Single
 resources return the object. `DELETE` returns 204.
+
+`GET /v1/activity` lists task mutations newest first. Database triggers record
+creates, updates, deletes and restores from every mutation path, including MCP
+and recurrence jobs. Status changes include their old and new values.
 
 ### Ownership
 
