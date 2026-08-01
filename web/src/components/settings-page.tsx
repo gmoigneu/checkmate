@@ -25,7 +25,7 @@ import {
 	Trash2,
 	UsersRound,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -37,13 +37,51 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ApiError, api } from "@/lib/api";
+import {
+	type Appearance,
+	type AppearancePreferences,
+	applyAppearancePreferences,
+	type Density,
+	readAppearancePreferences,
+	saveAppearancePreferences,
+} from "@/lib/appearance";
 import { formatTimestamp } from "@/lib/format";
 import type { CreatedDeviceToken, Me, OAuthGrant } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+const apiDocumentationURL =
+	import.meta.env.VITE_CHECKMATE_API_DOCS_URL ??
+	"https://github.com/gmoigneu/checkmate/blob/main/specs/openapi.yaml";
+const appearancePreferenceEvent = "checkmate:appearance-preferences";
+const defaultAppearanceSnapshot = "system|comfortable|false";
+
+function appearanceSnapshot() {
+	const preferences = readAppearancePreferences(window.localStorage);
+	return `${preferences.appearance}|${preferences.density}|${preferences.reduceMotion}`;
+}
+
+function subscribeAppearancePreferences(onChange: () => void) {
+	window.addEventListener("storage", onChange);
+	window.addEventListener(appearancePreferenceEvent, onChange);
+	return () => {
+		window.removeEventListener("storage", onChange);
+		window.removeEventListener(appearancePreferenceEvent, onChange);
+	};
+}
+
+function updateAppearancePreferences(next: AppearancePreferences) {
+	saveAppearancePreferences(next, window.localStorage);
+	applyAppearancePreferences(
+		next,
+		document.documentElement,
+		window.matchMedia("(prefers-color-scheme: dark)").matches,
+	);
+	window.dispatchEvent(new Event(appearancePreferenceEvent));
+}
+
 type SettingsSection =
 	| "account"
-	| "contexts"
+	| "organization"
 	| "people"
 	| "repeating"
 	| "devices"
@@ -64,7 +102,7 @@ const settingsSections: Array<{
 		icon: CircleUserRound,
 	},
 	{
-		id: "contexts",
+		id: "organization",
 		label: "Contexts",
 		description: "Organize your work",
 		icon: MonitorCog,
@@ -186,7 +224,7 @@ function SettingsSectionContent({
 	switch (section) {
 		case "account":
 			return <AccountSettings me={me} />;
-		case "contexts":
+		case "organization":
 			return <ContextsSettings />;
 		case "people":
 			return <PeopleSettings />;
@@ -521,30 +559,32 @@ function DeviceTokenSettings({ me }: { me?: Me }) {
 				/>
 			)}
 			{revoke.error ? <InlineError error={revoke.error} /> : null}
-			<CreateTokenDialog
-				open={creating}
-				onOpenChange={setCreating}
-				onCreated={(value) => {
-					setCreating(false);
-					setCreated(value);
-					queryClient.invalidateQueries({ queryKey: ["tokens"] });
-				}}
-			/>
-			<CreatedTokenDialog
-				token={created}
-				onDismiss={() => setCreated(undefined)}
-			/>
+			{creating ? (
+				<CreateTokenDialog
+					onDismiss={() => setCreating(false)}
+					onCreated={(value) => {
+						setCreating(false);
+						setCreated(value);
+						queryClient.invalidateQueries({ queryKey: ["tokens"] });
+					}}
+				/>
+			) : null}
+			{created ? (
+				<CreatedTokenDialog
+					key={created.id}
+					token={created}
+					onDismiss={() => setCreated(undefined)}
+				/>
+			) : null}
 		</>
 	);
 }
 
 function CreateTokenDialog({
-	open,
-	onOpenChange,
+	onDismiss,
 	onCreated,
 }: {
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
+	onDismiss: () => void;
 	onCreated: (token: CreatedDeviceToken) => void;
 }) {
 	const [name, setName] = useState("");
@@ -560,14 +600,6 @@ function CreateTokenDialog({
 	const fields =
 		mutation.error instanceof ApiError ? mutation.error.fields : {};
 
-	useEffect(() => {
-		if (!open) return;
-		setName("");
-		setScopes(["read", "write"]);
-		setExpiresOn("");
-		mutation.reset();
-	}, [open, mutation.reset]);
-
 	const toggleScope = (scope: "read" | "write") =>
 		setScopes((current) =>
 			current.includes(scope)
@@ -576,7 +608,7 @@ function CreateTokenDialog({
 		);
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog open onOpenChange={(open) => !open && onDismiss()}>
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Create a device token</DialogTitle>
@@ -648,7 +680,6 @@ function CreateTokenDialog({
 							type="date"
 							value={expiresOn}
 							onChange={(event) => setExpiresOn(event.target.value)}
-							min={new Date().toISOString().slice(0, 10)}
 							aria-invalid={Boolean(fields.expires_at)}
 						/>
 						{fields.expires_at ? (
@@ -657,11 +688,7 @@ function CreateTokenDialog({
 					</label>
 					{mutation.error ? <InlineError error={mutation.error} /> : null}
 					<DialogFooter>
-						<Button
-							type="button"
-							variant="outline"
-							onClick={() => onOpenChange(false)}
-						>
+						<Button type="button" variant="outline" onClick={onDismiss}>
 							Cancel
 						</Button>
 						<Button
@@ -688,21 +715,16 @@ function CreatedTokenDialog({
 	token,
 	onDismiss,
 }: {
-	token?: CreatedDeviceToken;
+	token: CreatedDeviceToken;
 	onDismiss: () => void;
 }) {
 	const [copied, setCopied] = useState(false);
+	const [copyError, setCopyError] = useState(false);
 	const [acknowledged, setAcknowledged] = useState(false);
-
-	useEffect(() => {
-		if (!token) return;
-		setCopied(false);
-		setAcknowledged(false);
-	}, [token]);
 
 	return (
 		<Dialog
-			open={Boolean(token)}
+			open
 			onOpenChange={(open) => {
 				if (!open && acknowledged) onDismiss();
 			}}
@@ -721,20 +743,34 @@ function CreatedTokenDialog({
 				</DialogHeader>
 				<div className="flex items-center gap-2 rounded-xl border border-border bg-muted p-3">
 					<code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm">
-						{token?.token}
+						{token.token}
 					</code>
 					<Button
 						variant="outline"
 						size="sm"
 						onClick={async () => {
 							if (!token) return;
-							await navigator.clipboard.writeText(token.token);
-							setCopied(true);
+							try {
+								if (!navigator.clipboard)
+									throw new Error("Clipboard unavailable");
+								await navigator.clipboard.writeText(token.token);
+								setCopied(true);
+								setCopyError(false);
+							} catch {
+								setCopied(false);
+								setCopyError(true);
+							}
 						}}
 					>
 						{copied ? <Check /> : <Copy />} {copied ? "Copied" : "Copy"}
 					</Button>
 				</div>
+				{copyError ? (
+					<p className="m-0 text-sm text-[var(--task-overdue-fg)]" role="alert">
+						Your browser blocked clipboard access. Select the token above and
+						copy it manually before continuing.
+					</p>
+				) : null}
 				<label className="flex items-start gap-3 text-sm">
 					<input
 						type="checkbox"
@@ -881,40 +917,23 @@ function safeClientURL(value: string | null) {
 	}
 }
 
-type Appearance = "system" | "light" | "dark";
-type Density = "comfortable" | "compact";
-
 function AppearanceSettings() {
-	const [appearance, setAppearance] = useState<Appearance>("system");
-	const [density, setDensity] = useState<Density>("comfortable");
-	const [reduceMotion, setReduceMotion] = useState(false);
-
-	useEffect(() => {
-		const savedAppearance = window.localStorage.getItem("checkmate:appearance");
-		const savedDensity = window.localStorage.getItem("checkmate:density");
-		setAppearance(
-			savedAppearance === "light" || savedAppearance === "dark"
-				? savedAppearance
-				: "system",
-		);
-		setDensity(savedDensity === "compact" ? "compact" : "comfortable");
-		setReduceMotion(
-			window.localStorage.getItem("checkmate:reduce-motion") === "true",
-		);
-	}, []);
-
-	useEffect(() => {
-		window.localStorage.setItem("checkmate:appearance", appearance);
-		window.localStorage.setItem("checkmate:density", density);
-		window.localStorage.setItem(
-			"checkmate:reduce-motion",
-			String(reduceMotion),
-		);
-		document.documentElement.dataset.appearance = appearance;
-		document.documentElement.dataset.density = density;
-		document.documentElement.dataset.reduceMotion = String(reduceMotion);
-	}, [appearance, density, reduceMotion]);
-
+	const snapshot = useSyncExternalStore(
+		subscribeAppearancePreferences,
+		appearanceSnapshot,
+		() => defaultAppearanceSnapshot,
+	);
+	const [appearance, density, reduceMotionValue] = snapshot.split("|") as [
+		Appearance,
+		Density,
+		string,
+	];
+	const reduceMotion = reduceMotionValue === "true";
+	const preferences: AppearancePreferences = {
+		appearance,
+		density,
+		reduceMotion,
+	};
 	return (
 		<>
 			<SectionHeading
@@ -925,7 +944,12 @@ function AppearanceSettings() {
 				<ChoiceGroup
 					label="Theme"
 					value={appearance}
-					onChange={(value) => setAppearance(value as Appearance)}
+					onChange={(value) =>
+						updateAppearancePreferences({
+							...preferences,
+							appearance: value as Appearance,
+						})
+					}
 					options={[
 						{ value: "system", label: "System", icon: MonitorCog },
 						{ value: "light", label: "Light", icon: Eye },
@@ -935,7 +959,12 @@ function AppearanceSettings() {
 				<ChoiceGroup
 					label="Density"
 					value={density}
-					onChange={(value) => setDensity(value as Density)}
+					onChange={(value) =>
+						updateAppearancePreferences({
+							...preferences,
+							density: value as Density,
+						})
+					}
 					options={[
 						{ value: "comfortable", label: "Comfortable", icon: Smartphone },
 						{ value: "compact", label: "Compact", icon: Database },
@@ -952,7 +981,12 @@ function AppearanceSettings() {
 					<input
 						type="checkbox"
 						checked={reduceMotion}
-						onChange={(event) => setReduceMotion(event.target.checked)}
+						onChange={(event) =>
+							updateAppearancePreferences({
+								...preferences,
+								reduceMotion: event.target.checked,
+							})
+						}
 						className="size-4 accent-[var(--accent)]"
 					/>
 				</label>
@@ -1063,7 +1097,7 @@ function AboutSettings() {
 					<RefreshCw /> Refresh all data
 				</Button>
 				<a
-					href="https://github.com/nls/checkmate/blob/main/specs/openapi.yaml"
+					href={apiDocumentationURL}
 					target="_blank"
 					rel="noreferrer"
 					className="inline-flex h-9 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium text-[var(--text-accent)] hover:bg-muted"

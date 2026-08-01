@@ -2,6 +2,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+	applyAppearancePreferences,
+	readAppearancePreferences,
+} from "@/lib/appearance";
 
 import appCss from "../styles.css?url";
 
@@ -37,13 +41,16 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: ReactNode }) {
 	useEffect(() => {
-		const root = document.documentElement;
-		root.dataset.appearance =
-			window.localStorage.getItem("checkmate:appearance") ?? "system";
-		root.dataset.density =
-			window.localStorage.getItem("checkmate:density") ?? "comfortable";
-		root.dataset.reduceMotion =
-			window.localStorage.getItem("checkmate:reduce-motion") ?? "false";
+		const media = window.matchMedia("(prefers-color-scheme: dark)");
+		const apply = () =>
+			applyAppearancePreferences(
+				readAppearancePreferences(window.localStorage),
+				document.documentElement,
+				media.matches,
+			);
+		apply();
+		media.addEventListener("change", apply);
+		return () => media.removeEventListener("change", apply);
 	}, []);
 
 	return (
