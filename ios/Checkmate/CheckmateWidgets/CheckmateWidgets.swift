@@ -33,7 +33,7 @@ private struct BriefProvider: TimelineProvider {
   private func load(completion: @escaping (BriefEntry) -> Void) {
     _Concurrency.Task {
       do {
-        let store = try LocalStore(storeURL: LocalStore.sharedStoreURL())
+        let store = try LocalStore.shared()
         let snapshot = try await store.snapshot()
         let today = CalendarDate.string(.now)
         let open = snapshot.tasks.filter {

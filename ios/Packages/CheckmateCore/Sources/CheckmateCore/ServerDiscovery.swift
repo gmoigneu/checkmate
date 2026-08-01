@@ -4,6 +4,7 @@ public enum ServerValidationError: Error, LocalizedError, Sendable, Equatable {
   case invalidAddress
   case unreachable
   case untrustedCertificate
+  case insecureTransport
   case wrongService
   case degraded
 
@@ -12,6 +13,8 @@ public enum ServerValidationError: Error, LocalizedError, Sendable, Equatable {
     case .invalidAddress: "Enter a complete Checkmate server address."
     case .unreachable: "Cannot reach that address. Check the hostname or your network."
     case .untrustedCertificate: "That certificate is not trusted, so no credentials were sent."
+    case .insecureTransport:
+      "Use HTTPS for remote servers. HTTP is only allowed for localhost development."
     case .wrongService: "Something answered, but it is not a Checkmate server."
     case .degraded: "The server is running but its database is unreachable. Try again shortly."
     }
@@ -39,15 +42,23 @@ public enum ServerDiscovery {
     guard var components = URLComponents(string: value),
       let scheme = components.scheme?.lowercased(),
       ["http", "https"].contains(scheme),
-      components.host != nil
+      let host = components.host
     else {
       throw ServerValidationError.invalidAddress
+    }
+    if scheme == "http", !isLoopback(host) {
+      throw ServerValidationError.insecureTransport
     }
     components.query = nil
     components.fragment = nil
     if components.path == "/" { components.path = "" }
     guard let url = components.url else { throw ServerValidationError.invalidAddress }
     return url
+  }
+
+  private static func isLoopback(_ host: String) -> Bool {
+    let value = host.lowercased()
+    return value == "localhost" || value == "::1" || value.hasPrefix("127.")
   }
 
   public static func validate(_ input: String, session: URLSession = .shared) async throws

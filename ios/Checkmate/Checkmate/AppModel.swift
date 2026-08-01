@@ -47,8 +47,7 @@ final class AppModel {
       isUITesting ? (UserDefaults(suiteName: "io.nls.Checkmate.ui-testing") ?? defaults) : defaults
     vault = SharedConfiguration.credentialVault()
     do {
-      store = try LocalStore(
-        storeURL: isUITesting ? nil : LocalStore.sharedStoreURL(), inMemory: isUITesting)
+      store = try isUITesting ? LocalStore(inMemory: true) : LocalStore.shared()
     } catch {
       store = try! LocalStore(inMemory: true)
       alertMessage =

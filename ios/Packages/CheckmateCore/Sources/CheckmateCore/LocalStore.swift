@@ -61,6 +61,28 @@ public struct CacheSnapshot: Sendable {
   }
 }
 
+public enum SharedStorageError: Error, LocalizedError, Sendable, Equatable {
+  case appGroupUnavailable
+
+  public var errorDescription: String? {
+    "Checkmate's shared storage is unavailable. Reinstall the app or check its App Group capability."
+  }
+}
+
+public enum SyncError: Error, LocalizedError, Sendable, Equatable {
+  case stalledCursor(Int64)
+  case pageLimitExceeded
+
+  public var errorDescription: String? {
+    switch self {
+    case .stalledCursor(let cursor):
+      "The server repeated sync cursor \(cursor). Sync stopped safely; try a full resync."
+    case .pageLimitExceeded:
+      "The sync contained too many pages. Sync stopped safely; try a full resync."
+    }
+  }
+}
+
 public actor LocalStore {
   public static let appGroupIdentifier = SharedConfiguration.appGroupIdentifier
 
@@ -89,6 +111,11 @@ public actor LocalStore {
     FileManager.default
       .containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)?
       .appending(path: "Checkmate.store")
+  }
+
+  public static func shared() throws -> LocalStore {
+    guard let url = sharedStoreURL() else { throw SharedStorageError.appGroupUnavailable }
+    return try LocalStore(storeURL: url)
   }
 
   public func cursor() throws -> Int64 {
@@ -198,8 +225,14 @@ public struct SyncEngine: Sendable {
   @discardableResult
   public func run(full: Bool = false) async throws -> CacheSnapshot {
     var cursor = full ? 0 : try await store.cursor()
+    var pageCount = 0
     repeat {
+      pageCount += 1
+      guard pageCount <= 10_000 else { throw SyncError.pageLimitExceeded }
       let page = try await client.sync(since: cursor)
+      guard page.cursor >= cursor, !(page.hasMore && page.cursor == cursor) else {
+        throw SyncError.stalledCursor(cursor)
+      }
       try await store.apply(page)
       cursor = page.cursor
       if !page.hasMore { break }

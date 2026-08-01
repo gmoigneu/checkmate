@@ -22,6 +22,12 @@ struct ServerDiscoveryTests {
       try ServerDiscovery.normalizedURL(from: "file:///tmp/checkmate")
     }
   }
+
+  @Test func rejectsInsecureRemoteServers() {
+    #expect(throws: ServerValidationError.insecureTransport) {
+      try ServerDiscovery.normalizedURL(from: "http://tasks.example.com")
+    }
+  }
 }
 
 @Suite("Authentication")
@@ -129,6 +135,25 @@ struct APIClientTests {
     } catch let error as APIError {
       #expect(error.status == 422)
       #expect(error.fields["due_on"] == "must be a date")
+    }
+  }
+
+  @Test func stopsWhenSyncCursorDoesNotAdvance() async throws {
+    let session = mockSession { request in
+      let body =
+        #"{"cursor":0,"has_more":true,"changes":{"contexts":[],"projects":[],"people":[],"recurrences":[],"tasks":[]},"server_time":"2026-08-01T00:00:00Z"}"#
+        .data(
+          using: .utf8)!
+      return (
+        HTTPURLResponse(
+          url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body
+      )
+    }
+    let client = APIClient(baseURL: URL(string: "https://checkmate.example")!, session: session)
+    let store = try LocalStore(inMemory: true)
+
+    await #expect(throws: SyncError.stalledCursor(0)) {
+      try await SyncEngine(client: client, store: store).run(full: true)
     }
   }
 

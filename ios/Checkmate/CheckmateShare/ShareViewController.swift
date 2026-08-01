@@ -115,7 +115,7 @@ private struct ShareCaptureView: View {
 
   private func loadContexts() async {
     do {
-      let store = try LocalStore(storeURL: LocalStore.sharedStoreURL())
+      let store = try LocalStore.shared()
       contexts = try await store.snapshot().contexts.filter {
         $0.archivedAt == nil && $0.deletedAt == nil
       }

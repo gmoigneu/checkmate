@@ -20,7 +20,7 @@ struct CheckmateContextQuery: EntityQuery {
   func suggestedEntities() async throws -> [CheckmateContextEntity] { try await all() }
 
   private func all() async throws -> [CheckmateContextEntity] {
-    let store = try LocalStore(storeURL: LocalStore.sharedStoreURL())
+    let store = try LocalStore.shared()
     return try await store.snapshot().contexts
       .filter { $0.deletedAt == nil && $0.archivedAt == nil }
       .map { CheckmateContextEntity(id: $0.id, name: $0.name) }
@@ -51,7 +51,7 @@ struct CheckmateTaskQuery: EntityStringQuery {
   }
 
   private func all() async throws -> [CheckmateTaskEntity] {
-    let store = try LocalStore(storeURL: LocalStore.sharedStoreURL())
+    let store = try LocalStore.shared()
     return try await store.snapshot().tasks
       .filter { $0.deletedAt == nil && $0.status.isOpen }
       .map { CheckmateTaskEntity(id: $0.id, title: $0.title) }
@@ -99,7 +99,7 @@ struct CheckmateTodayIntent: AppIntent {
         "You have \(totals.overdue) overdue, \(totals.dueToday) due today, and \(totals.planned) planned."
       return .result(dialog: IntentDialog(stringLiteral: sentence))
     } catch {
-      let store = try LocalStore(storeURL: LocalStore.sharedStoreURL())
+      let store = try LocalStore.shared()
       let snapshot = try await store.snapshot()
       let today = CalendarDate.string(.now)
       let open = snapshot.tasks.filter(\.status.isOpen)
