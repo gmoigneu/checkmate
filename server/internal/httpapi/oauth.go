@@ -157,7 +157,14 @@ func (s *Server) handleAuthorizeDecision(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	http.Redirect(w, r, redirect, http.StatusFound)
+	parsedRedirect, parseErr := url.Parse(redirect)
+	if parseErr == nil && parsedRedirect.Scheme != "http" && parsedRedirect.Scheme != "https" {
+		s.renderNativeAppRedirect(w, redirect)
+
+		return
+	}
+
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
 }
 
 // redirectToLogin sends an unauthenticated visitor through sign-in and back.

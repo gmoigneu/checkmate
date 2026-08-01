@@ -119,7 +119,7 @@ final class AppModel {
       throw ServerValidationError.invalidAddress
     }
     let oauth = OAuthService(baseURL: url)
-    let clientKey = "oauthClientId:\(url.absoluteString)"
+    let clientKey = "oauthClientId:\(url.absoluteString):\(oauth.redirectURI)"
     let clientId: String
     if let saved = defaults.string(forKey: clientKey) {
       clientId = saved
