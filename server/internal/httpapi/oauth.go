@@ -140,7 +140,8 @@ func (s *Server) handleAuthorizeDecision(w http.ResponseWriter, r *http.Request)
 		err      error
 	)
 
-	if r.PostFormValue("decision") == "approve" {
+	approved := r.PostFormValue("decision") == "approve"
+	if approved {
 		redirect, err = s.oauth.CompleteAuthorization(r.Context(), requestID, ident.UserID)
 	} else {
 		redirect, err = s.oauth.DenyAuthorization(r.Context(), requestID, ident.UserID)
@@ -159,7 +160,7 @@ func (s *Server) handleAuthorizeDecision(w http.ResponseWriter, r *http.Request)
 
 	parsedRedirect, parseErr := url.Parse(redirect)
 	if parseErr == nil && parsedRedirect.Scheme != "http" && parsedRedirect.Scheme != "https" {
-		s.renderNativeAppRedirect(w, redirect)
+		s.renderNativeAppRedirect(w, redirect, approved)
 
 		return
 	}

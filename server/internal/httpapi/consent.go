@@ -196,13 +196,23 @@ var nativeAppRedirectTemplate = template.Must(template.New("native_app_redirect"
 </head>
 <body>
 <main class="card">
+  {{if .Approved}}
   <h1>Authorization approved</h1>
   <p>Return to the Checkmate app to finish connecting your account.</p>
-  <a href="{{.}}">Open Checkmate</a>
+  {{else}}
+  <h1>Authorization declined</h1>
+  <p>Return to the Checkmate app to continue without connecting this account.</p>
+  {{end}}
+  <a href="{{.Redirect}}">Open Checkmate</a>
 </main>
 </body>
 </html>
 `))
+
+type nativeAppRedirectView struct {
+	Redirect template.URL
+	Approved bool
+}
 
 // consentView is the data the consent template renders.
 type consentView struct {
@@ -280,7 +290,7 @@ func (s *Server) renderOAuthError(w http.ResponseWriter, _ *http.Request, err *o
 	}
 }
 
-func (s *Server) renderNativeAppRedirect(w http.ResponseWriter, redirect string) {
+func (s *Server) renderNativeAppRedirect(w http.ResponseWriter, redirect string, approved bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Content-Security-Policy",
@@ -288,10 +298,11 @@ func (s *Server) renderNativeAppRedirect(w http.ResponseWriter, redirect string)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 
-	// CompleteAuthorization only returns the exact, previously validated redirect
-	// registered to this client. Marking it as a template URL preserves its custom
-	// scheme instead of html/template replacing it with #ZgotmplZ.
-	if err := nativeAppRedirectTemplate.Execute(w, template.URL(redirect)); err != nil {
+	// Both authorization outcomes derive their callback from the exact, previously
+	// validated redirect registered to this client. Marking it as a template URL
+	// preserves its custom scheme instead of html/template replacing it with #ZgotmplZ.
+	view := nativeAppRedirectView{Redirect: template.URL(redirect), Approved: approved}
+	if err := nativeAppRedirectTemplate.Execute(w, view); err != nil {
 		s.log.Error("render native app redirect", slog.Any("error", err))
 	}
 }
