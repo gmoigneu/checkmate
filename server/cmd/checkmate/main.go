@@ -540,9 +540,9 @@ func fixturesCmd(ctx context.Context, cfg config.Config, log *slog.Logger, args 
 
 	keepUser = true
 	fmt.Printf(
-		"loaded fixtures for %s <%s>: contexts=%d projects=%d people=%d recurrences=%d tasks=%d history_from=%s\n",
+		"loaded fixtures for %s <%s>: contexts=%d projects=%d people=%d recurrences=%d tasks=%d activity=%d history_from=%s\n",
 		user.Name, user.Email, summary.Contexts, summary.Projects, summary.People,
-		summary.Recurrences, summary.Tasks, summary.HistoryFrom,
+		summary.Recurrences, summary.Tasks, summary.Activity, summary.HistoryFrom,
 	)
 
 	if secret != "" {

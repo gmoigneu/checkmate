@@ -46,6 +46,9 @@ func TestLoadCreatesRepresentativeDataset(t *testing.T) {
 	if summary.Tasks < 50 {
 		t.Fatalf("tasks = %d, want at least 50", summary.Tasks)
 	}
+	if summary.Activity <= summary.Tasks {
+		t.Fatalf("activity = %d, want more than one creation per task on average", summary.Activity)
+	}
 	if summary.HistoryFrom != "2026-04-26" {
 		t.Fatalf("history starts %s, want 2026-04-26", summary.HistoryFrom)
 	}
@@ -155,6 +158,8 @@ func TestLoadCreatesRepresentativeDataset(t *testing.T) {
 		t.Fatalf("earliest completion = %s, want history reaching late April", earliestCompletion)
 	}
 
+	assertFixtureActivity(t, ctx, db, user.ID, summary)
+
 	rows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	if err != nil {
 		t.Fatal(err)
@@ -183,6 +188,111 @@ func TestLoadCreatesRepresentativeDataset(t *testing.T) {
 	}
 	if users != 0 || sources != 6 || rev != 0 {
 		t.Fatalf("after reset users=%d sources=%d rev=%d, want 0, 6, 0", users, sources, rev)
+	}
+}
+
+func TestLoadDoesNotSeedFutureHistoryAtMonthStart(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "month-start.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := database.Migrate(ctx, db, log); err != nil {
+		t.Fatal(err)
+	}
+
+	user, err := account.CreateUser(ctx, db, "month-start@example.com", "Month Start", "UTC")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	if _, err := Load(ctx, db, user.ID, Options{Now: now, Timezone: user.Timezone}); err != nil {
+		t.Fatal(err)
+	}
+
+	var futureTasks, futureActivity int
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM tasks
+		WHERE user_id = ? AND (
+			completed_at > ? OR cancelled_at > ? OR expired_at > ?
+		)`, user.ID, now.Format(database.Timestamp), now.Format(database.Timestamp),
+		now.Format(database.Timestamp)).Scan(&futureTasks); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM task_activity
+		WHERE user_id = ? AND occurred_at > ?`,
+		user.ID, now.Format(database.Timestamp)).Scan(&futureActivity); err != nil {
+		t.Fatal(err)
+	}
+	if futureTasks != 0 || futureActivity != 0 {
+		t.Fatalf("future task timestamps=%d activity=%d, want none", futureTasks, futureActivity)
+	}
+}
+
+func assertFixtureActivity(
+	t *testing.T,
+	ctx context.Context,
+	db *sql.DB,
+	userID string,
+	summary Summary,
+) {
+	t.Helper()
+
+	var activityCount, createdCount int
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*), sum(action = 'created')
+		FROM task_activity
+		WHERE user_id = ?`, userID).Scan(&activityCount, &createdCount); err != nil {
+		t.Fatal(err)
+	}
+	if activityCount != summary.Activity || createdCount != summary.Tasks {
+		t.Fatalf("activity=%d created=%d, want summary=%d tasks=%d",
+			activityCount, createdCount, summary.Activity, summary.Tasks)
+	}
+
+	assertValues(t, db, `
+		SELECT DISTINCT action
+		FROM task_activity
+		WHERE user_id = ?`, userID, []string{"created", "updated", "deleted"})
+	assertValues(t, db, `
+		SELECT DISTINCT status_after
+		FROM task_activity
+		WHERE user_id = ? AND changed_fields LIKE '%status%'`,
+		userID, []string{model.StatusDone, model.StatusCancelled, model.StatusInProgress,
+			model.StatusBlocked, model.StatusDelegated})
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT occurred_at
+		FROM task_activity
+		WHERE user_id = ?
+		ORDER BY id`, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	previous := ""
+	for rows.Next() {
+		var occurredAt string
+		if err := rows.Scan(&occurredAt); err != nil {
+			t.Fatal(err)
+		}
+		if occurredAt < previous {
+			t.Fatalf("activity id order is not chronological: %s follows %s", occurredAt, previous)
+		}
+		previous = occurredAt
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 }
 

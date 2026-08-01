@@ -29,8 +29,10 @@ sessions, tokens, OAuth clients, and task data before provisioning the supplied
 account. It then prints a new API token and loads contexts, projects in every
 lifecycle state, people, active/paused/finished recurrences, every task
 kind/status/priority/source/capture method, and completed or cancelled history
-spread across the previous three calendar months. Dates are relative to the day
-the command runs, so overdue, today, and upcoming views stay useful.
+spread across the previous three calendar months. It also seeds the task
+activity feed with chronological creation, edit, status-transition, expiration,
+and deletion events. Dates are relative to the day the command runs, so overdue,
+today, upcoming, activity, and report views stay useful.
 
 ```sh
 go run ./cmd/checkmate fixtures load g@moigneu.com
