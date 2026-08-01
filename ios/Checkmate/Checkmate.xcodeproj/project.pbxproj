@@ -1,0 +1,909 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		244757EF301E634200F336D0 /* CheckmateCore in Frameworks */ = {isa = PBXBuildFile; productRef = 244757EE301E634200F336D0 /* CheckmateCore */; };
+		A10000010000000000000001 /* CheckmateCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000C00000000000000001 /* CheckmateCore */; };
+		A10000020000000000000001 /* CheckmateCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000C10000000000000001 /* CheckmateCore */; };
+		A10000030000000000000001 /* CheckmateWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A10000200000000000000001 /* CheckmateWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A10000040000000000000001 /* CheckmateShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A10000210000000000000001 /* CheckmateShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		244757CF301E614D00F336D0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 244757B9301E614C00F336D0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 244757C0301E614C00F336D0;
+			remoteInfo = Checkmate;
+		};
+		244757D9301E614D00F336D0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 244757B9301E614C00F336D0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 244757C0301E614C00F336D0;
+			remoteInfo = Checkmate;
+		};
+		A10000100000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 244757B9301E614C00F336D0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000600000000000000001;
+			remoteInfo = CheckmateWidgets;
+		};
+		A10000110000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 244757B9301E614C00F336D0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000610000000000000001;
+			remoteInfo = CheckmateShare;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A10000800000000000000001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A10000030000000000000001 /* CheckmateWidgets.appex in Embed Foundation Extensions */,
+				A10000040000000000000001 /* CheckmateShare.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		244757C1301E614C00F336D0 /* Checkmate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Checkmate.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		244757CE301E614D00F336D0 /* CheckmateTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CheckmateTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		244757D8301E614D00F336D0 /* CheckmateUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CheckmateUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000200000000000000001 /* CheckmateWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = CheckmateWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000210000000000000001 /* CheckmateShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = CheckmateShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		244757EC301E61A300F336D0 /* Exceptions for "Checkmate" folder in "Checkmate" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 244757C0301E614C00F336D0 /* Checkmate */;
+		};
+		A10000300000000000000001 /* Exceptions for "CheckmateWidgets" folder in "CheckmateWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (Info.plist, );
+			target = A10000600000000000000001 /* CheckmateWidgets */;
+		};
+		A10000310000000000000001 /* Exceptions for "CheckmateShare" folder in "CheckmateShare" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (Info.plist, );
+			target = A10000610000000000000001 /* CheckmateShare */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		244757C3301E614C00F336D0 /* Checkmate */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				244757EC301E61A300F336D0 /* Exceptions for "Checkmate" folder in "Checkmate" target */,
+			);
+			path = Checkmate;
+			sourceTree = "<group>";
+		};
+		244757D1301E614D00F336D0 /* CheckmateTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CheckmateTests;
+			sourceTree = "<group>";
+		};
+		244757DB301E614D00F336D0 /* CheckmateUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CheckmateUITests;
+			sourceTree = "<group>";
+		};
+		A10000400000000000000001 /* CheckmateWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (A10000300000000000000001 /* Exceptions for "CheckmateWidgets" folder in "CheckmateWidgets" target */, );
+			path = CheckmateWidgets;
+			sourceTree = "<group>";
+		};
+		A10000410000000000000001 /* CheckmateShare */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (A10000310000000000000001 /* Exceptions for "CheckmateShare" folder in "CheckmateShare" target */, );
+			path = CheckmateShare;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		244757BE301E614C00F336D0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				244757EF301E634200F336D0 /* CheckmateCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		244757CB301E614D00F336D0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		244757D5301E614D00F336D0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000500000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A10000010000000000000001 /* CheckmateCore in Frameworks */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000510000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A10000020000000000000001 /* CheckmateCore in Frameworks */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		244757B8301E614C00F336D0 = {
+			isa = PBXGroup;
+			children = (
+				244757C3301E614C00F336D0 /* Checkmate */,
+				A10000400000000000000001 /* CheckmateWidgets */,
+				A10000410000000000000001 /* CheckmateShare */,
+				244757D1301E614D00F336D0 /* CheckmateTests */,
+				244757DB301E614D00F336D0 /* CheckmateUITests */,
+				244757C2301E614C00F336D0 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		244757C2301E614C00F336D0 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				244757C1301E614C00F336D0 /* Checkmate.app */,
+				A10000200000000000000001 /* CheckmateWidgets.appex */,
+				A10000210000000000000001 /* CheckmateShare.appex */,
+				244757CE301E614D00F336D0 /* CheckmateTests.xctest */,
+				244757D8301E614D00F336D0 /* CheckmateUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		244757C0301E614C00F336D0 /* Checkmate */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 244757E2301E614D00F336D0 /* Build configuration list for PBXNativeTarget "Checkmate" */;
+			buildPhases = (
+				244757BD301E614C00F336D0 /* Sources */,
+				244757BE301E614C00F336D0 /* Frameworks */,
+				244757BF301E614C00F336D0 /* Resources */,
+				A10000800000000000000001 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10000900000000000000001 /* PBXTargetDependency */,
+				A10000910000000000000001 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				244757C3301E614C00F336D0 /* Checkmate */,
+			);
+			name = Checkmate;
+			packageProductDependencies = (
+				244757EE301E634200F336D0 /* CheckmateCore */,
+			);
+			productName = Checkmate;
+			productReference = 244757C1301E614C00F336D0 /* Checkmate.app */;
+			productType = "com.apple.product-type.application";
+		};
+		244757CD301E614D00F336D0 /* CheckmateTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 244757E5301E614D00F336D0 /* Build configuration list for PBXNativeTarget "CheckmateTests" */;
+			buildPhases = (
+				244757CA301E614D00F336D0 /* Sources */,
+				244757CB301E614D00F336D0 /* Frameworks */,
+				244757CC301E614D00F336D0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				244757D0301E614D00F336D0 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				244757D1301E614D00F336D0 /* CheckmateTests */,
+			);
+			name = CheckmateTests;
+			packageProductDependencies = (
+			);
+			productName = CheckmateTests;
+			productReference = 244757CE301E614D00F336D0 /* CheckmateTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		244757D7301E614D00F336D0 /* CheckmateUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 244757E8301E614D00F336D0 /* Build configuration list for PBXNativeTarget "CheckmateUITests" */;
+			buildPhases = (
+				244757D4301E614D00F336D0 /* Sources */,
+				244757D5301E614D00F336D0 /* Frameworks */,
+				244757D6301E614D00F336D0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				244757DA301E614D00F336D0 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				244757DB301E614D00F336D0 /* CheckmateUITests */,
+			);
+			name = CheckmateUITests;
+			packageProductDependencies = (
+			);
+			productName = CheckmateUITests;
+			productReference = 244757D8301E614D00F336D0 /* CheckmateUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		A10000600000000000000001 /* CheckmateWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000B00000000000000001 /* Build configuration list for PBXNativeTarget "CheckmateWidgets" */;
+			buildPhases = (
+				A10000700000000000000001 /* Sources */,
+				A10000500000000000000001 /* Frameworks */,
+				A10000720000000000000001 /* Resources */,
+			);
+			buildRules = ( );
+			dependencies = ( );
+			fileSystemSynchronizedGroups = (A10000400000000000000001 /* CheckmateWidgets */, );
+			name = CheckmateWidgets;
+			packageProductDependencies = (A10000C00000000000000001 /* CheckmateCore */, );
+			productName = CheckmateWidgets;
+			productReference = A10000200000000000000001 /* CheckmateWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		A10000610000000000000001 /* CheckmateShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000B10000000000000001 /* Build configuration list for PBXNativeTarget "CheckmateShare" */;
+			buildPhases = (
+				A10000710000000000000001 /* Sources */,
+				A10000510000000000000001 /* Frameworks */,
+				A10000730000000000000001 /* Resources */,
+			);
+			buildRules = ( );
+			dependencies = ( );
+			fileSystemSynchronizedGroups = (A10000410000000000000001 /* CheckmateShare */, );
+			name = CheckmateShare;
+			packageProductDependencies = (A10000C10000000000000001 /* CheckmateCore */, );
+			productName = CheckmateShare;
+			productReference = A10000210000000000000001 /* CheckmateShare.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		244757B9301E614C00F336D0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					244757C0301E614C00F336D0 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					244757CD301E614D00F336D0 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 244757C0301E614C00F336D0;
+					};
+					244757D7301E614D00F336D0 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 244757C0301E614C00F336D0;
+					};
+					A10000600000000000000001 = { CreatedOnToolsVersion = 26.6; };
+					A10000610000000000000001 = { CreatedOnToolsVersion = 26.6; };
+				};
+			};
+			buildConfigurationList = 244757BC301E614C00F336D0 /* Build configuration list for PBXProject "Checkmate" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 244757B8301E614C00F336D0;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				244757ED301E634200F336D0 /* XCLocalSwiftPackageReference "../Packages/CheckmateCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 244757C2301E614C00F336D0 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				244757C0301E614C00F336D0 /* Checkmate */,
+				A10000600000000000000001 /* CheckmateWidgets */,
+				A10000610000000000000001 /* CheckmateShare */,
+				244757CD301E614D00F336D0 /* CheckmateTests */,
+				244757D7301E614D00F336D0 /* CheckmateUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		244757BF301E614C00F336D0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		244757CC301E614D00F336D0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		244757D6301E614D00F336D0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000720000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ( );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000730000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ( );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		244757BD301E614C00F336D0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		244757CA301E614D00F336D0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		244757D4301E614D00F336D0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000700000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ( );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000710000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ( );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		244757D0301E614D00F336D0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 244757C0301E614C00F336D0 /* Checkmate */;
+			targetProxy = 244757CF301E614D00F336D0 /* PBXContainerItemProxy */;
+		};
+		244757DA301E614D00F336D0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 244757C0301E614C00F336D0 /* Checkmate */;
+			targetProxy = 244757D9301E614D00F336D0 /* PBXContainerItemProxy */;
+		};
+		A10000900000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000600000000000000001 /* CheckmateWidgets */;
+			targetProxy = A10000100000000000000001 /* PBXContainerItemProxy */;
+		};
+		A10000910000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000610000000000000001 /* CheckmateShare */;
+			targetProxy = A10000110000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		244757E0301E614D00F336D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		244757E1301E614D00F336D0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		244757E3301E614D00F336D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = Checkmate/Checkmate.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Checkmate/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.nls.Checkmate;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		244757E4301E614D00F336D0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = Checkmate/Checkmate.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Checkmate/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.nls.Checkmate;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		244757E6301E614D00F336D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.nls.CheckmateTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Checkmate.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Checkmate";
+			};
+			name = Debug;
+		};
+		244757E7301E614D00F336D0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.nls.CheckmateTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Checkmate.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Checkmate";
+			};
+			name = Release;
+		};
+		244757E9301E614D00F336D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.nls.CheckmateUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Checkmate;
+			};
+			name = Debug;
+		};
+		244757EA301E614D00F336D0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.nls.CheckmateUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Checkmate;
+			};
+			name = Release;
+		};
+		A10000A00000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = CheckmateWidgets/CheckmateWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CheckmateWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.nls.Checkmate.Widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A10000A10000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = CheckmateWidgets/CheckmateWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CheckmateWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.nls.Checkmate.Widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		A10000A20000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = CheckmateShare/CheckmateShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CheckmateShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.nls.Checkmate.Share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A10000A30000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = CheckmateShare/CheckmateShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GWL4T4GA92;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CheckmateShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.nls.Checkmate.Share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		244757BC301E614C00F336D0 /* Build configuration list for PBXProject "Checkmate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				244757E0301E614D00F336D0 /* Debug */,
+				244757E1301E614D00F336D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		244757E2301E614D00F336D0 /* Build configuration list for PBXNativeTarget "Checkmate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				244757E3301E614D00F336D0 /* Debug */,
+				244757E4301E614D00F336D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		244757E5301E614D00F336D0 /* Build configuration list for PBXNativeTarget "CheckmateTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				244757E6301E614D00F336D0 /* Debug */,
+				244757E7301E614D00F336D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		244757E8301E614D00F336D0 /* Build configuration list for PBXNativeTarget "CheckmateUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				244757E9301E614D00F336D0 /* Debug */,
+				244757EA301E614D00F336D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000B00000000000000001 /* Build configuration list for PBXNativeTarget "CheckmateWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000A00000000000000001 /* Debug */,
+				A10000A10000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000B10000000000000001 /* Build configuration list for PBXNativeTarget "CheckmateShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000A20000000000000001 /* Debug */,
+				A10000A30000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		244757ED301E634200F336D0 /* XCLocalSwiftPackageReference "../Packages/CheckmateCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/CheckmateCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		244757EE301E634200F336D0 /* CheckmateCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CheckmateCore;
+		};
+		A10000C00000000000000001 /* CheckmateCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CheckmateCore;
+		};
+		A10000C10000000000000001 /* CheckmateCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CheckmateCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 244757B9301E614C00F336D0 /* Project object */;
+}
