@@ -144,6 +144,92 @@ type TaskActivity struct {
 	OccurredAt    string   `json:"occurred_at"`
 }
 
+// TaskSnapshot is the report-relevant post-change state captured alongside a
+// task activity event. Reference URLs and email addresses are deliberately
+// absent so the same shape can be sent to an external report model safely.
+type TaskSnapshot struct {
+	ContextID       *string `json:"context_id"`
+	ProjectID       *string `json:"project_id"`
+	ParentID        *string `json:"parent_id"`
+	RecurrenceID    *string `json:"recurrence_id"`
+	OccurrenceOn    *string `json:"occurrence_on"`
+	Source          *string `json:"source"`
+	CaptureMethod   string  `json:"capture_method"`
+	Title           string  `json:"title"`
+	Details         *string `json:"details"`
+	Status          string  `json:"status"`
+	Priority        *string `json:"priority"`
+	DueOn           *string `json:"due_on"`
+	PlannedOn       *string `json:"planned_on"`
+	DaySlot         *string `json:"day_slot"`
+	SlotOrder       int64   `json:"slot_order"`
+	EstimateMinutes *int64  `json:"estimate_minutes"`
+	DelegatedToID   *string `json:"delegated_to_id"`
+	BlockedByID     *string `json:"blocked_by_id"`
+	CompletedAt     *string `json:"completed_at"`
+	CancelledAt     *string `json:"cancelled_at"`
+	ExpiredAt       *string `json:"expired_at"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
+	DeletedAt       *string `json:"deleted_at"`
+}
+
+type ReportContext struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type Report struct {
+	ID            string          `json:"id"`
+	Title         string          `json:"title"`
+	StartOn       string          `json:"start_on"`
+	EndOn         string          `json:"end_on"`
+	Focus         *string         `json:"focus"`
+	Contexts      []ReportContext `json:"contexts"`
+	IncludeInbox  bool            `json:"include_inbox"`
+	LatestVersion int64           `json:"latest_version"`
+	CreatedAt     string          `json:"created_at"`
+	UpdatedAt     string          `json:"updated_at"`
+	Versions      []ReportVersion `json:"versions,omitempty"`
+}
+
+type ReportVersion struct {
+	ID              string `json:"id"`
+	VersionNumber   int64  `json:"version_number"`
+	ContentMarkdown string `json:"content_markdown,omitempty"`
+	Model           string `json:"model"`
+	InputTokens     *int64 `json:"input_tokens"`
+	OutputTokens    *int64 `json:"output_tokens"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+type ReportMetrics struct {
+	Completed                int   `json:"completed"`
+	Open                     int   `json:"open"`
+	Blocked                  int   `json:"blocked"`
+	Delegated                int   `json:"delegated"`
+	Dropped                  int   `json:"dropped"`
+	Inbox                    int   `json:"inbox"`
+	CompletedEstimateMinutes int64 `json:"completed_estimate_minutes"`
+	OpenEstimateMinutes      int64 `json:"open_estimate_minutes"`
+	CompletedWithoutEstimate int   `json:"completed_without_estimate"`
+	OpenWithoutEstimate      int   `json:"open_without_estimate"`
+}
+
+type ReportPreviewTask struct {
+	TaskID      string `json:"task_id"`
+	Title       string `json:"title"`
+	Category    string `json:"category"`
+	ContextName string `json:"context_name"`
+}
+
+type ReportPreview struct {
+	Metrics       ReportMetrics       `json:"metrics"`
+	Tasks         []ReportPreviewTask `json:"tasks"`
+	LegacyHistory bool                `json:"legacy_history"`
+}
+
 // Task statuses.
 const (
 	StatusInbox      = "inbox"

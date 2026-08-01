@@ -20,6 +20,7 @@ import (
 	"github.com/nls/checkmate/server/internal/login"
 	"github.com/nls/checkmate/server/internal/oauth"
 	"github.com/nls/checkmate/server/internal/recurrence"
+	reportservice "github.com/nls/checkmate/server/internal/report"
 	"github.com/nls/checkmate/server/internal/store"
 )
 
@@ -30,6 +31,7 @@ type Server struct {
 	oauth   *oauth.Service
 	spawner *recurrence.Spawner
 	mcp     http.Handler
+	reports *reportservice.Service
 	cfg     config.Config
 	log     *slog.Logger
 	version string
@@ -55,6 +57,7 @@ func New(
 		oauth:   oauthSvc,
 		spawner: spawner,
 		mcp:     mcpHandler,
+		reports: reportservice.New(st, cfg),
 		cfg:     cfg,
 		log:     log,
 		version: version,
@@ -109,6 +112,14 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /v1/sync", s.handleSync)
 	api.HandleFunc("GET /v1/brief", s.handleBrief)
 	api.HandleFunc("GET /v1/activity", s.handleListTaskActivity)
+	api.HandleFunc("GET /v1/reports/config", s.handleReportConfig)
+	api.HandleFunc("POST /v1/reports/preview", s.handlePreviewReport)
+	api.HandleFunc("POST /v1/reports/generate", s.handleGenerateReport)
+	api.HandleFunc("GET /v1/reports", s.handleListReports)
+	api.HandleFunc("GET /v1/reports/{id}", s.handleGetReport)
+	api.HandleFunc("PATCH /v1/reports/{id}", s.handleUpdateReport)
+	api.HandleFunc("DELETE /v1/reports/{id}", s.handleDeleteReport)
+	api.HandleFunc("POST /v1/reports/{id}/regenerate", s.handleRegenerateReport)
 
 	api.HandleFunc("GET /v1/me", s.handleMe)
 	api.HandleFunc("PATCH /v1/me", s.handleUpdateMe)

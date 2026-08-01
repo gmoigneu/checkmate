@@ -15,6 +15,7 @@ import { Route as BlockedRouteImport } from './routes/blocked'
 import { Route as DoneRouteImport } from './routes/done'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as RepeatingRouteImport } from './routes/repeating'
+import { Route as ReportRouteImport } from './routes/report'
 import { Route as RoutineRouteImport } from './routes/routine'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SigninRouteImport } from './routes/signin'
@@ -53,6 +54,11 @@ const InboxRoute = InboxRouteImport.update({
 const RepeatingRoute = RepeatingRouteImport.update({
   id: '/repeating',
   path: '/repeating',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportRoute = ReportRouteImport.update({
+  id: '/report',
+  path: '/report',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RoutineRoute = RoutineRouteImport.update({
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/done': typeof DoneRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
+  '/report': typeof ReportRoute
   '/routine': typeof RoutineRoute
   '/settings': typeof SettingsRouteWithChildren
   '/signin': typeof SigninRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/done': typeof DoneRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
+  '/report': typeof ReportRoute
   '/routine': typeof RoutineRoute
   '/settings': typeof SettingsRouteWithChildren
   '/signin': typeof SigninRoute
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/done': typeof DoneRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
+  '/report': typeof ReportRoute
   '/routine': typeof RoutineRoute
   '/settings': typeof SettingsRouteWithChildren
   '/signin': typeof SigninRoute
@@ -162,6 +171,7 @@ export interface FileRouteTypes {
     | '/done'
     | '/inbox'
     | '/repeating'
+    | '/report'
     | '/routine'
     | '/settings'
     | '/signin'
@@ -179,6 +189,7 @@ export interface FileRouteTypes {
     | '/done'
     | '/inbox'
     | '/repeating'
+    | '/report'
     | '/routine'
     | '/settings'
     | '/signin'
@@ -196,6 +207,7 @@ export interface FileRouteTypes {
     | '/done'
     | '/inbox'
     | '/repeating'
+    | '/report'
     | '/routine'
     | '/settings'
     | '/signin'
@@ -214,6 +226,7 @@ export interface RootRouteChildren {
   DoneRoute: typeof DoneRoute
   InboxRoute: typeof InboxRoute
   RepeatingRoute: typeof RepeatingRoute
+  ReportRoute: typeof ReportRoute
   RoutineRoute: typeof RoutineRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   SigninRoute: typeof SigninRoute
@@ -266,6 +279,13 @@ declare module '@tanstack/react-router' {
       path: '/repeating'
       fullPath: '/repeating'
       preLoaderRoute: typeof RepeatingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/report': {
+      id: '/report'
+      path: '/report'
+      fullPath: '/report'
+      preLoaderRoute: typeof ReportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/routine': {
@@ -353,6 +373,7 @@ const rootRouteChildren: RootRouteChildren = {
   DoneRoute: DoneRoute,
   InboxRoute: InboxRoute,
   RepeatingRoute: RepeatingRoute,
+  ReportRoute: ReportRoute,
   RoutineRoute: RoutineRoute,
   SettingsRoute: SettingsRouteWithChildren,
   SigninRoute: SigninRoute,

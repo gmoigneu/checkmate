@@ -2,6 +2,8 @@
 
 # Go build output
 server/bin/
+server/internal/web/ui/*
+!server/internal/web/ui/.gitkeep
 
 # Local sqlite databases (including WAL sidecars)
 *.db

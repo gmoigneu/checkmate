@@ -11,6 +11,7 @@ import {
 	type Circle,
 	CircleDotDashed,
 	Command,
+	FileText,
 	History,
 	Hourglass,
 	Inbox,
@@ -41,6 +42,7 @@ import {
 	NewProjectButton,
 	ProjectActionsMenu,
 } from "@/components/context-project-management";
+import { ReportPage } from "@/components/report-page";
 import { RoutinePage } from "@/components/routine-page";
 import { StatusBadge, TaskStatusMenu } from "@/components/task-status-menu";
 import { Badge } from "@/components/ui/badge";
@@ -88,6 +90,7 @@ type Page =
 	| "tasks"
 	| "done"
 	| "activity"
+	| "report"
 	| "waiting"
 	| "routine"
 	| "repeating"
@@ -108,6 +111,7 @@ const navItems: Array<{
 	{ page: "tasks", label: "Upcoming", icon: CalendarDays, href: "/tasks" },
 	{ page: "done", label: "Done", icon: CheckCheck, href: "/done" },
 	{ page: "activity", label: "Activity", icon: History, href: "/activity" },
+	{ page: "report", label: "Report", icon: FileText, href: "/report" },
 ];
 
 const priorityOptions: Array<{ value: TaskPriority; label: string }> = [
@@ -177,6 +181,7 @@ function pageForPath(pathname: string): Page {
 	if (pathname.startsWith("/inbox")) return "inbox";
 	if (pathname.startsWith("/done")) return "done";
 	if (pathname.startsWith("/activity")) return "activity";
+	if (pathname.startsWith("/report")) return "report";
 	if (pathname.startsWith("/waiting")) return "waiting";
 	if (pathname.startsWith("/routine")) return "routine";
 	if (pathname.startsWith("/repeating")) return "repeating";
@@ -299,6 +304,8 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 			return <InboxPage contexts={appContexts} people={appPeople} />;
 		if (page === "done") return <DonePage contexts={appContexts} />;
 		if (page === "activity") return <ActivityPage />;
+		if (page === "report")
+			return <ReportPage timezone={me.data?.timezone ?? "UTC"} />;
 		if (page === "waiting") return <WaitingPage contexts={appContexts} />;
 		if (page === "routine")
 			return (

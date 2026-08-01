@@ -4,7 +4,9 @@ package fixtures
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/nls/checkmate/server/internal/database"
@@ -25,6 +27,7 @@ type Summary struct {
 	People      int
 	Recurrences int
 	Tasks       int
+	Activity    int
 	HistoryFrom string
 }
 
@@ -37,6 +40,18 @@ type loader struct {
 	start    time.Time
 	location *time.Location
 	summary  Summary
+	activity []activitySpec
+}
+
+type activitySpec struct {
+	TaskID        string
+	TaskTitle     string
+	Action        string
+	ChangedFields string
+	StatusBefore  *string
+	StatusAfter   *string
+	OccurredAt    string
+	SnapshotJSON  string
 }
 
 type contextSpec struct {
@@ -231,7 +246,11 @@ func (l *loader) load() error {
 		return err
 	}
 
-	return l.loadTombstone(contexts)
+	if err := l.loadTombstone(contexts); err != nil {
+		return err
+	}
+
+	return l.loadTaskActivity()
 }
 
 func (l *loader) loadContexts() (map[string]string, error) {
@@ -456,14 +475,23 @@ func (l *loader) loadRecurrenceHistory(recurrences map[string]recurrenceSpec) er
 
 	monthly := recurrences["Reconcile household expenses"]
 	for day := monthly.StartsOn; !day.After(l.today); day = day.AddDate(0, 1, 0) {
-		completedAt := l.timestamp(day.AddDate(0, 0, 2), 16)
+		completionDay := day.AddDate(0, 0, 2)
+		status := model.StatusDone
+		updatedAt := completionDay
+		var completedAt *string
+		if completionDay.After(l.today) {
+			status = model.StatusTodo
+			updatedAt = day
+		} else {
+			completedAt = ptr(l.timestamp(completionDay, 16))
+		}
 		if err := l.insertTask(taskSpec{
 			ID: id.New(), ContextID: &monthly.ContextID, ProjectID: monthly.ProjectID,
 			RecurrenceID: &monthly.ID, OccurrenceOn: &day, Source: monthly.Source,
 			CaptureMethod: "recurrence", Title: monthly.Title, Details: monthly.Details,
-			Status: model.StatusDone, Priority: ptr(model.PriorityLow), DueOn: &day,
-			EstimateMinutes: &monthly.EstimateMinutes, CompletedAt: &completedAt,
-			CreatedAt: day, UpdatedAt: day.AddDate(0, 0, 2),
+			Status: status, Priority: ptr(model.PriorityLow), DueOn: &day,
+			EstimateMinutes: &monthly.EstimateMinutes, CompletedAt: completedAt,
+			CreatedAt: day, UpdatedAt: updatedAt,
 		}); err != nil {
 			return err
 		}
@@ -738,7 +766,168 @@ func (l *loader) insertTask(spec taskSpec) error {
 		return fmt.Errorf("fixtures: insert task %q: %w", spec.Title, err)
 	}
 
+	l.stageTaskActivity(spec, createdAt, updatedAt)
 	l.summary.Tasks++
+
+	return nil
+}
+
+// stageTaskActivity builds the history that would have resulted if each
+// fixture task had evolved through the application over time. The task insert
+// trigger necessarily sees only the final row and timestamps the activity at
+// fixture-load time, so loadTaskActivity replaces those automatic rows with
+// this chronological history once every task has been inserted.
+func (l *loader) stageTaskActivity(spec taskSpec, createdAt, updatedAt string) {
+	initialStatus := model.StatusTodo
+	if spec.ContextID == nil {
+		initialStatus = model.StatusInbox
+	}
+
+	createdSnapshot := fixtureTaskSnapshot(spec, createdAt, updatedAt)
+	createdSnapshot.Status = initialStatus
+	createdSnapshot.CompletedAt = nil
+	createdSnapshot.CancelledAt = nil
+	createdSnapshot.ExpiredAt = nil
+	createdSnapshot.DeletedAt = nil
+
+	representativeField := ""
+	if spec.Status == initialStatus && updatedAt > createdAt {
+		representativeField = representativeChangedField(spec)
+		clearSnapshotField(&createdSnapshot, representativeField)
+	}
+
+	l.activity = append(l.activity, activitySpec{
+		TaskID: spec.ID, TaskTitle: spec.Title, Action: "created",
+		StatusAfter: ptr(initialStatus), OccurredAt: createdAt,
+		SnapshotJSON: mustSnapshotJSON(createdSnapshot),
+	})
+
+	if spec.Status != initialStatus {
+		occurredAt := updatedAt
+		changedFields := "status"
+		switch {
+		case spec.ExpiredAt != nil:
+			occurredAt = *spec.ExpiredAt
+			changedFields = "status,expired_at"
+		case spec.CompletedAt != nil:
+			occurredAt = *spec.CompletedAt
+		case spec.CancelledAt != nil:
+			occurredAt = *spec.CancelledAt
+		}
+
+		updatedSnapshot := fixtureTaskSnapshot(spec, createdAt, updatedAt)
+		updatedSnapshot.DeletedAt = nil
+		l.activity = append(l.activity, activitySpec{
+			TaskID: spec.ID, TaskTitle: spec.Title, Action: "updated",
+			ChangedFields: changedFields, StatusBefore: ptr(initialStatus),
+			StatusAfter: ptr(spec.Status), OccurredAt: occurredAt,
+			SnapshotJSON: mustSnapshotJSON(updatedSnapshot),
+		})
+	} else if updatedAt > createdAt {
+		// Give long-lived pending fixture tasks a representative non-status
+		// mutation so the activity feed covers ordinary edits too.
+		l.activity = append(l.activity, activitySpec{
+			TaskID: spec.ID, TaskTitle: spec.Title, Action: "updated",
+			ChangedFields: representativeField,
+			StatusBefore:  ptr(spec.Status), StatusAfter: ptr(spec.Status),
+			OccurredAt:   updatedAt,
+			SnapshotJSON: mustSnapshotJSON(fixtureTaskSnapshot(spec, createdAt, updatedAt)),
+		})
+	}
+
+	if spec.DeletedAt != nil {
+		l.activity = append(l.activity, activitySpec{
+			TaskID: spec.ID, TaskTitle: spec.Title, Action: "deleted",
+			ChangedFields: "deleted_at", StatusBefore: ptr(spec.Status),
+			StatusAfter: ptr(spec.Status), OccurredAt: *spec.DeletedAt,
+			SnapshotJSON: mustSnapshotJSON(fixtureTaskSnapshot(spec, createdAt, updatedAt)),
+		})
+	}
+}
+
+func fixtureTaskSnapshot(spec taskSpec, createdAt, updatedAt string) model.TaskSnapshot {
+	return model.TaskSnapshot{
+		ContextID: spec.ContextID, ProjectID: spec.ProjectID, ParentID: spec.ParentID,
+		RecurrenceID: spec.RecurrenceID, OccurrenceOn: dateString(spec.OccurrenceOn),
+		Source: emptyStringPtr(spec.Source), CaptureMethod: spec.CaptureMethod,
+		Title: spec.Title, Details: emptyStringPtr(spec.Details), Status: spec.Status,
+		Priority: spec.Priority, DueOn: dateString(spec.DueOn), PlannedOn: dateString(spec.PlannedOn),
+		DaySlot: spec.DaySlot, SlotOrder: int64(spec.SlotOrder),
+		EstimateMinutes: intPtr64(spec.EstimateMinutes), DelegatedToID: spec.DelegatedToID,
+		BlockedByID: spec.BlockedByID, CompletedAt: spec.CompletedAt,
+		CancelledAt: spec.CancelledAt, ExpiredAt: spec.ExpiredAt,
+		CreatedAt: createdAt, UpdatedAt: updatedAt, DeletedAt: spec.DeletedAt,
+	}
+}
+
+func clearSnapshotField(snapshot *model.TaskSnapshot, field string) {
+	switch field {
+	case "planned_on":
+		snapshot.PlannedOn = nil
+	case "due_on":
+		snapshot.DueOn = nil
+	case "priority":
+		snapshot.Priority = nil
+	case "details":
+		snapshot.Details = nil
+	case "title":
+		snapshot.Title = "Untitled fixture task"
+	}
+}
+
+func mustSnapshotJSON(snapshot model.TaskSnapshot) string {
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(raw)
+}
+
+func representativeChangedField(spec taskSpec) string {
+	switch {
+	case spec.PlannedOn != nil:
+		return "planned_on"
+	case spec.DueOn != nil:
+		return "due_on"
+	case spec.Priority != nil:
+		return "priority"
+	case spec.Details != "":
+		return "details"
+	default:
+		return "title"
+	}
+}
+
+func (l *loader) loadTaskActivity() error {
+	// Discard the insert-trigger rows: they describe the correct tasks but all
+	// carry the instant the fixture command ran rather than the fixture dates.
+	if _, err := l.tx.ExecContext(l.ctx,
+		`DELETE FROM task_activity WHERE user_id = ?`, l.userID); err != nil {
+		return fmt.Errorf("fixtures: reset generated task activity: %w", err)
+	}
+
+	// The activity API paginates by descending id. Insert chronologically so id
+	// order and occurred_at order agree, including for seeded historical data.
+	sort.SliceStable(l.activity, func(i, j int) bool {
+		return l.activity[i].OccurredAt < l.activity[j].OccurredAt
+	})
+
+	for _, item := range l.activity {
+		_, err := l.tx.ExecContext(l.ctx, `
+			INSERT INTO task_activity (
+				user_id, task_id, task_title, action, changed_fields,
+				status_before, status_after, occurred_at, snapshot_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			l.userID, item.TaskID, item.TaskTitle, item.Action, item.ChangedFields,
+			item.StatusBefore, item.StatusAfter, item.OccurredAt, item.SnapshotJSON,
+		)
+		if err != nil {
+			return fmt.Errorf("fixtures: insert task activity for %q: %w", item.TaskTitle, err)
+		}
+
+		l.summary.Activity++
+	}
 
 	return nil
 }
@@ -800,6 +989,32 @@ func dateValue(value any) any {
 	default:
 		return nil
 	}
+}
+
+func dateString(value *time.Time) *string {
+	if value == nil {
+		return nil
+	}
+
+	formatted := value.Format(database.DateOnly)
+	return &formatted
+}
+
+func emptyStringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+
+	return &value
+}
+
+func intPtr64(value *int) *int64 {
+	if value == nil {
+		return nil
+	}
+
+	converted := int64(*value)
+	return &converted
 }
 
 func valueOr(value *string, fallback string) string {
