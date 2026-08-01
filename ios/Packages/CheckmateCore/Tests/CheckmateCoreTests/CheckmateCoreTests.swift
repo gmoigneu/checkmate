@@ -64,6 +64,14 @@ struct DurationTextTests {
   }
 }
 
+@Suite("Capture methods")
+struct CaptureMethodTests {
+  @Test func shareExtensionUsesTheServerContractValue() {
+    #expect(CaptureMethod.shareExtension == .chromeExtension)
+    #expect(CaptureMethod.shareExtension.rawValue == "chrome_ext")
+  }
+}
+
 @Suite("Capture parser")
 struct CaptureParserTests {
   @Test func extractsKnownTokensAndPreservesTheTitle() {

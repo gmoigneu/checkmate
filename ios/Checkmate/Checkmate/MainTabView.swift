@@ -35,6 +35,7 @@ struct MainTabView: View {
       if new == .capture {
         previous = old == .capture ? .brief : old
         selected = previous
+        model.requestedCaptureMethod = .form
         capturePresented = true
       } else {
         previous = new
@@ -50,7 +51,9 @@ struct MainTabView: View {
       selected = .brief
       model.briefRequested = false
     }
-    .sheet(isPresented: $capturePresented) { CaptureView() }
+    .sheet(isPresented: $capturePresented) {
+      CaptureView(captureMethod: model.requestedCaptureMethod)
+    }
     .sheet(
       item: Binding(
         get: { model.deepLinkedTask },

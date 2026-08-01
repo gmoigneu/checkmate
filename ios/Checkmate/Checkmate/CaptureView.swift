@@ -8,6 +8,11 @@ struct CaptureView: View {
   @State private var isSaving = false
   @State private var errorMessage: String?
   @FocusState private var focused: Bool
+  let captureMethod: CaptureMethod
+
+  init(captureMethod: CaptureMethod = .form) {
+    self.captureMethod = captureMethod
+  }
 
   private var parse: CaptureParse {
     CaptureParser.parse(text, contexts: model.contexts, people: model.people)
@@ -110,7 +115,7 @@ struct CaptureView: View {
     errorMessage = nil
     _Concurrency.Task {
       do {
-        try await model.createTask(from: parse)
+        try await model.createTask(from: parse, captureMethod: captureMethod)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         dismiss()
       } catch {

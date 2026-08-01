@@ -78,7 +78,7 @@ struct AddCheckmateTaskIntent: AppIntent {
   func perform() async throws -> some IntentResult & ProvidesDialog {
     let client = try SharedConfiguration.client()
     var body: [String: JSONValue] = [
-      "title": .string(taskTitle), "capture_method": .string("voice"),
+      "title": .string(taskTitle), "capture_method": .string(CaptureMethod.voice.rawValue),
     ]
     if let context { body["context_id"] = .string(context.id) }
     if let due { body["due_on"] = .string(CalendarDate.string(due)) }

@@ -204,10 +204,12 @@ struct CheckmateBriefWidget: Widget {
 @available(iOSApplicationExtension 18.0, *)
 struct CheckmateCaptureControl: ControlWidget {
   static let kind = "io.nls.Checkmate.capture"
+  private let captureURL = URL(
+    string: "io.nls.checkmate://capture?capture_method=ios_widget")!
 
   var body: some ControlWidgetConfiguration {
     StaticControlConfiguration(kind: Self.kind) {
-      ControlWidgetButton(action: OpenURLIntent(URL(string: "io.nls.checkmate://capture")!)) {
+      ControlWidgetButton(action: OpenURLIntent(captureURL)) {
         Label("Capture", systemImage: "plus.circle.fill")
       }
     }

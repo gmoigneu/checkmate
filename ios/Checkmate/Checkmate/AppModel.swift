@@ -30,6 +30,7 @@ final class AppModel {
   var alertMessage: String?
   var toastMessage: String?
   var captureRequested = false
+  var requestedCaptureMethod: CaptureMethod = .form
   var briefRequested = false
   var deepLinkedTask: CheckmateTask?
 
@@ -210,13 +211,13 @@ final class AppModel {
     await refresh()
   }
 
-  func createTask(from parse: CaptureParse, captureMethod: String = "form") async throws {
+  func createTask(from parse: CaptureParse, captureMethod: CaptureMethod = .form) async throws {
     guard let client else { throw APIError(status: 0, message: "Connect to your server first.") }
     guard !isOffline else {
       throw APIError(status: 0, message: "Capture is unavailable offline. Your text is still here.")
     }
     var body = parse.createBody
-    body["capture_method"] = .string(captureMethod)
+    body["capture_method"] = .string(captureMethod.rawValue)
     let created = try await client.createTask(body)
     toastMessage =
       created.contextId.flatMap { id in contexts.first(where: { $0.id == id })?.name }.map {
@@ -249,6 +250,9 @@ final class AppModel {
     guard url.scheme?.lowercased() == "io.nls.checkmate" else { return }
     let host = url.host?.lowercased()
     if host == "capture" {
+      let method = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+        .first(where: { $0.name == "capture_method" })?.value
+      requestedCaptureMethod = method.flatMap(CaptureMethod.init(rawValue:)) ?? .form
       captureRequested = true
       return
     }

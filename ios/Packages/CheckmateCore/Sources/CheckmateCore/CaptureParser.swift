@@ -18,7 +18,7 @@ public struct CaptureParse: Sendable, Equatable {
   public var createBody: [String: JSONValue] {
     var body: [String: JSONValue] = [
       "title": .string(title),
-      "capture_method": .string("form"),
+      "capture_method": .string(CaptureMethod.form.rawValue),
     ]
     if let context { body["context_id"] = .string(context.id) }
     if let person {

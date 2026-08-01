@@ -17,6 +17,19 @@ public enum TaskKind: String, Codable, CaseIterable, Sendable {
   case short, long, blocked, delegated, recurring, routine
 }
 
+public enum CaptureMethod: String, Codable, Sendable {
+  case form
+  case api
+  case hermes
+  case chromeExtension = "chrome_ext"
+  case iosWidget = "ios_widget"
+  case voice
+  case recurrence
+
+  /// The server contract uses the browser/share bucket for share extensions.
+  public static let shareExtension = Self.chromeExtension
+}
+
 public enum TaskPriority: String, Codable, CaseIterable, Sendable {
   case urgent, high, medium, low
 }
