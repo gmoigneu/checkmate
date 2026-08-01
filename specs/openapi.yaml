@@ -73,6 +73,7 @@ tags:
   - name: Health
   - name: Authentication
   - name: Tasks
+  - name: Activity
   - name: Contexts
   - name: Projects
   - name: People
@@ -274,6 +275,28 @@ paths:
                     items: { $ref: "#/components/schemas/Source" }
                   next_cursor: { type: ["string", "null"] }
         "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/activity:
+    get:
+      tags: [Activity]
+      summary: List task mutations
+      description: |
+        Newest first. The append-only feed is written by database triggers, so it
+        includes changes made through REST, MCP, recurrence jobs, delete/restore,
+        and relationship cleanup. Status transitions carry both the old and new
+        status.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: A page of task activity.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskActivityList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
 
   /v1/tasks:
     get:
@@ -1726,6 +1749,31 @@ components:
           description: Present only on a tombstone.
         rev: { $ref: "#/components/schemas/Rev" }
 
+    TaskActivityAction:
+      type: string
+      enum: [created, updated, deleted, restored]
+
+    TaskActivity:
+      type: object
+      required:
+        [id, task_id, task_title, action, changed_fields, status_before,
+         status_after, occurred_at]
+      properties:
+        id: { type: integer, format: int64 }
+        task_id: { type: string }
+        task_title:
+          type: string
+          description: Snapshot of the title at the time of the mutation.
+        action: { $ref: "#/components/schemas/TaskActivityAction" }
+        changed_fields:
+          type: array
+          items: { type: string }
+        status_before:
+          oneOf: [{ $ref: "#/components/schemas/TaskStatus" }, { type: "null" }]
+        status_after:
+          oneOf: [{ $ref: "#/components/schemas/TaskStatus" }, { type: "null" }]
+        occurred_at: { $ref: "#/components/schemas/Timestamp" }
+
     TaskCreate:
       type: object
       required: [title]
@@ -2413,6 +2461,15 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Task" }
+        next_cursor: { type: ["string", "null"] }
+
+    TaskActivityList:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/TaskActivity" }
         next_cursor: { type: ["string", "null"] }
 
     ContextList:

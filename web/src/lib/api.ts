@@ -6,8 +6,10 @@ import type {
 	Me,
 	Person,
 	Project,
+	ProjectStatus,
 	Recurrence,
 	Task,
+	TaskActivity,
 } from "./types";
 
 export class ApiError extends Error {
@@ -48,14 +50,72 @@ export const api = {
 		if (contextId) query.set("context_id", contextId);
 		return request<Brief>(`/v1/brief?${query}`);
 	},
-	contexts: () => request<Collection<Context>>("/v1/contexts?limit=200"),
+	contexts: (includeArchived = false) =>
+		request<Collection<Context>>(
+			`/v1/contexts?limit=200${includeArchived ? "&include_archived=true" : ""}`,
+		),
+	createContext: (body: {
+		name: string;
+		slug?: string;
+		color: string | null;
+	}) =>
+		request<Context>("/v1/contexts", {
+			method: "POST",
+			body: JSON.stringify(body),
+		}),
+	updateContext: (
+		id: string,
+		body: Partial<{
+			name: string;
+			slug: string;
+			color: string | null;
+			sort_order: number;
+			archived: boolean;
+		}>,
+	) =>
+		request<Context>(`/v1/contexts/${id}`, {
+			method: "PATCH",
+			body: JSON.stringify(body),
+		}),
+	deleteContext: (id: string) =>
+		request<void>(`/v1/contexts/${id}`, { method: "DELETE" }),
 	projects: (contextId?: string) =>
 		request<Collection<Project>>(
 			`/v1/projects?limit=200${contextId ? `&context_id=${contextId}` : ""}`,
 		),
+	createProject: (body: {
+		context_id: string;
+		name: string;
+		description: string | null;
+		status?: ProjectStatus;
+	}) =>
+		request<Project>("/v1/projects", {
+			method: "POST",
+			body: JSON.stringify(body),
+		}),
+	updateProject: (
+		id: string,
+		body: Partial<{
+			context_id: string;
+			name: string;
+			description: string | null;
+			status: ProjectStatus;
+		}>,
+	) =>
+		request<Project>(`/v1/projects/${id}`, {
+			method: "PATCH",
+			body: JSON.stringify(body),
+		}),
+	deleteProject: (id: string) =>
+		request<void>(`/v1/projects/${id}`, { method: "DELETE" }),
 	people: () => request<Collection<Person>>("/v1/people?limit=200"),
 	tasks: (params: URLSearchParams) =>
 		request<Collection<Task>>(`/v1/tasks?${params}`),
+	activity: (cursor?: string) => {
+		const query = new URLSearchParams({ limit: "100" });
+		if (cursor) query.set("cursor", cursor);
+		return request<Collection<TaskActivity>>(`/v1/activity?${query}`);
+	},
 	routines: () =>
 		request<Collection<Recurrence>>("/v1/recurrences?kind=routine&limit=200"),
 	createRoutine: (body: Record<string, unknown>) =>

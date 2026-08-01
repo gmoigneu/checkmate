@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as BlockedRouteImport } from './routes/blocked'
+import { Route as DoneRouteImport } from './routes/done'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as RepeatingRouteImport } from './routes/repeating'
 import { Route as RoutineRouteImport } from './routes/routine'
@@ -20,6 +22,7 @@ import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as WaitingRouteImport } from './routes/waiting'
 import { Route as CSlugRouteImport } from './routes/c.$slug'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
+import { Route as SettingsContextsRouteImport } from './routes/settings.contexts'
 import { Route as TTaskIdRouteImport } from './routes/t.$taskId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -27,9 +30,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ActivityRoute = ActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BlockedRoute = BlockedRouteImport.update({
   id: '/blocked',
   path: '/blocked',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DoneRoute = DoneRouteImport.update({
+  id: '/done',
+  path: '/done',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InboxRoute = InboxRouteImport.update({
@@ -77,6 +90,11 @@ const PProjectIdRoute = PProjectIdRouteImport.update({
   path: '/p/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsContextsRoute = SettingsContextsRouteImport.update({
+  id: '/contexts',
+  path: '/contexts',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const TTaskIdRoute = TTaskIdRouteImport.update({
   id: '/t/$taskId',
   path: '/t/$taskId',
@@ -85,52 +103,63 @@ const TTaskIdRoute = TTaskIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
   '/blocked': typeof BlockedRoute
+  '/done': typeof DoneRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/routine': typeof RoutineRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/signin': typeof SigninRoute
   '/tasks': typeof TasksRoute
   '/waiting': typeof WaitingRoute
   '/c/$slug': typeof CSlugRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/settings/contexts': typeof SettingsContextsRoute
   '/t/$taskId': typeof TTaskIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
   '/blocked': typeof BlockedRoute
+  '/done': typeof DoneRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/routine': typeof RoutineRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/signin': typeof SigninRoute
   '/tasks': typeof TasksRoute
   '/waiting': typeof WaitingRoute
   '/c/$slug': typeof CSlugRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/settings/contexts': typeof SettingsContextsRoute
   '/t/$taskId': typeof TTaskIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/activity': typeof ActivityRoute
   '/blocked': typeof BlockedRoute
+  '/done': typeof DoneRoute
   '/inbox': typeof InboxRoute
   '/repeating': typeof RepeatingRoute
   '/routine': typeof RoutineRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/signin': typeof SigninRoute
   '/tasks': typeof TasksRoute
   '/waiting': typeof WaitingRoute
   '/c/$slug': typeof CSlugRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/settings/contexts': typeof SettingsContextsRoute
   '/t/$taskId': typeof TTaskIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/activity'
     | '/blocked'
+    | '/done'
     | '/inbox'
     | '/repeating'
     | '/routine'
@@ -140,11 +169,14 @@ export interface FileRouteTypes {
     | '/waiting'
     | '/c/$slug'
     | '/p/$projectId'
+    | '/settings/contexts'
     | '/t/$taskId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/activity'
     | '/blocked'
+    | '/done'
     | '/inbox'
     | '/repeating'
     | '/routine'
@@ -154,11 +186,14 @@ export interface FileRouteTypes {
     | '/waiting'
     | '/c/$slug'
     | '/p/$projectId'
+    | '/settings/contexts'
     | '/t/$taskId'
   id:
     | '__root__'
     | '/'
+    | '/activity'
     | '/blocked'
+    | '/done'
     | '/inbox'
     | '/repeating'
     | '/routine'
@@ -168,16 +203,19 @@ export interface FileRouteTypes {
     | '/waiting'
     | '/c/$slug'
     | '/p/$projectId'
+    | '/settings/contexts'
     | '/t/$taskId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ActivityRoute: typeof ActivityRoute
   BlockedRoute: typeof BlockedRoute
+  DoneRoute: typeof DoneRoute
   InboxRoute: typeof InboxRoute
   RepeatingRoute: typeof RepeatingRoute
   RoutineRoute: typeof RoutineRoute
-  SettingsRoute: typeof SettingsRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   SigninRoute: typeof SigninRoute
   TasksRoute: typeof TasksRoute
   WaitingRoute: typeof WaitingRoute
@@ -195,11 +233,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/activity': {
+      id: '/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof ActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/blocked': {
       id: '/blocked'
       path: '/blocked'
       fullPath: '/blocked'
       preLoaderRoute: typeof BlockedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/done': {
+      id: '/done'
+      path: '/done'
+      fullPath: '/done'
+      preLoaderRoute: typeof DoneRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/inbox': {
@@ -265,6 +317,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/contexts': {
+      id: '/settings/contexts'
+      path: '/contexts'
+      fullPath: '/settings/contexts'
+      preLoaderRoute: typeof SettingsContextsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/t/$taskId': {
       id: '/t/$taskId'
       path: '/t/$taskId'
@@ -275,13 +334,27 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface SettingsRouteChildren {
+  SettingsContextsRoute: typeof SettingsContextsRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsContextsRoute: SettingsContextsRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ActivityRoute: ActivityRoute,
   BlockedRoute: BlockedRoute,
+  DoneRoute: DoneRoute,
   InboxRoute: InboxRoute,
   RepeatingRoute: RepeatingRoute,
   RoutineRoute: RoutineRoute,
-  SettingsRoute: SettingsRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   SigninRoute: SigninRoute,
   TasksRoute: TasksRoute,
   WaitingRoute: WaitingRoute,

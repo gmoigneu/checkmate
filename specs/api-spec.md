@@ -65,6 +65,13 @@ resources** return the bare object. `DELETE` returns 204.
 Three routes are actions rather than CRUD: `PATCH /v1/me` (profile),
 `POST /v1/tasks/{id}/restore` (§5.4) and `POST /v1/people/{id}/merge` (§4.7).
 
+`GET /v1/activity` is an append-only task mutation feed, newest first. Database
+triggers write it in the same transaction as the task change, so REST, MCP,
+recurrence jobs, delete/restore, and relationship cleanup cannot bypass it.
+Entries identify changed fields; a status transition includes both
+`status_before` and `status_after`. Like other collections it uses an opaque
+keyset cursor.
+
 **Errors** are `{"error": "...", "fields": {"due_on": "..."}}`. When `fields` is
 present, render each entry against its own control. A generic toast in that case
 throws away the only useful information in the response.
@@ -290,6 +297,10 @@ mechanism is used by every other collection, keyed on id.
 A deployment that changes the default ordering can likewise invalidate an in-flight
 default cursor. On a cursor 422, restart from the first page; attempting to reinterpret
 the old position under a new order would silently skip or repeat tasks.
+
+The Done view is `GET /v1/tasks?status=done&sort=completed_at&order=desc&limit=100`.
+Because reopening clears `completed_at`, this contains only tasks that are
+currently done and orders them by the last time they entered that status.
 
 ### 5.3 The inbox has two meanings, deliberately reconciled
 

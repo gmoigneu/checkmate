@@ -66,11 +66,14 @@ type personSpec struct {
 
 type recurrenceSpec struct {
 	ID               string
+	Kind             string
 	ContextID        string
 	ProjectID        *string
 	Source           string
 	Title            string
 	Details          string
+	DaySlot          *string
+	SlotOrder        int
 	RRule            string
 	EstimateMinutes  int
 	DelegatedToID    *string
@@ -98,6 +101,8 @@ type taskSpec struct {
 	Priority        *string
 	DueOn           *time.Time
 	PlannedOn       *time.Time
+	DaySlot         *string
+	SlotOrder       int
 	EstimateMinutes *int
 	DelegatedToID   *string
 	BlockedByID     *string
@@ -105,6 +110,7 @@ type taskSpec struct {
 	ReferenceLabel  string
 	CompletedAt     *string
 	CancelledAt     *string
+	ExpiredAt       *string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	DeletedAt       *string
@@ -338,25 +344,30 @@ func (l *loader) loadRecurrences(
 
 	specs := []recurrenceSpec{
 		{
-			ID: id.New(), ContextID: contexts["work"], ProjectID: ptr(projects["Operations"]),
+			ID: id.New(), Kind: model.RecurrenceRoutine,
+			ContextID: contexts["work"], ProjectID: ptr(projects["Operations"]),
 			Source: "self", Title: "Daily planning pass", Details: "Choose the day's three most important outcomes.",
+			DaySlot: ptr(model.DaySlotMorning), SlotOrder: 10,
 			RRule: "FREQ=DAILY", EstimateMinutes: 10, StartsOn: dailyStart,
 			NextOccurrenceOn: &nextDaily, LastSpawnedOn: &l.today, Active: true,
 		},
 		{
-			ID: id.New(), ContextID: contexts["work"], ProjectID: ptr(projects["Product launch"]),
+			ID: id.New(), Kind: model.RecurrenceClassic,
+			ContextID: contexts["work"], ProjectID: ptr(projects["Product launch"]),
 			Source: "meeting", Title: "Send weekly launch update", Details: "Summarize progress, risks, and next decisions.",
 			RRule: "FREQ=WEEKLY;BYDAY=FR", EstimateMinutes: 30, DelegatedToID: ptr(people["Maya Chen"]),
 			StartsOn: weeklyStart, NextOccurrenceOn: &nextFriday, LastSpawnedOn: &lastFriday, Active: true,
 		},
 		{
-			ID: id.New(), ContextID: contexts["personal"], ProjectID: ptr(projects["Home office"]),
+			ID: id.New(), Kind: model.RecurrenceClassic,
+			ContextID: contexts["personal"], ProjectID: ptr(projects["Home office"]),
 			Source: "email", Title: "Reconcile household expenses", Details: "Paused monthly routine.",
 			RRule: "FREQ=MONTHLY;BYMONTHDAY=1", EstimateMinutes: 25, StartsOn: monthlyStart,
 			NextOccurrenceOn: &nextMonth, LastSpawnedOn: &lastMonth, Active: false,
 		},
 		{
-			ID: id.New(), ContextID: contexts["health"], ProjectID: ptr(projects["10K training"]),
+			ID: id.New(), Kind: model.RecurrenceClassic,
+			ContextID: contexts["health"], ProjectID: ptr(projects["10K training"]),
 			Source: "self", Title: "Wednesday tempo run", Details: "Finished six-week training block.",
 			RRule: "FREQ=WEEKLY;BYDAY=WE;COUNT=6", EstimateMinutes: 45, StartsOn: finishedStart,
 			EndsOn: &finishedEnd, LastSpawnedOn: &finishedEnd, Active: false, CompletedAt: &finishedAt,
@@ -373,12 +384,14 @@ func (l *loader) loadRecurrences(
 		createdAt := l.timestamp(spec.StartsOn.AddDate(0, 0, -1), 9)
 		_, err := l.tx.ExecContext(l.ctx, `
 			INSERT INTO recurrences (
-				id, user_id, context_id, project_id, source_key, title, details, rrule,
-				timezone, estimate_minutes, delegated_to_id, lead_days, starts_on, ends_on,
-				next_occurrence_on, last_spawned_on, active, completed_at, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			spec.ID, l.userID, spec.ContextID, spec.ProjectID, spec.Source, spec.Title,
-			spec.Details, spec.RRule, l.location.String(), spec.EstimateMinutes,
+				id, user_id, kind, context_id, project_id, source_key, title, details,
+				day_slot, slot_order, rrule, timezone, estimate_minutes, delegated_to_id,
+				lead_days, starts_on, ends_on, next_occurrence_on, last_spawned_on, active,
+				completed_at, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			spec.ID, l.userID, spec.Kind, spec.ContextID, spec.ProjectID, spec.Source, spec.Title,
+			spec.Details, spec.DaySlot, spec.SlotOrder, spec.RRule, l.location.String(),
+			spec.EstimateMinutes,
 			spec.DelegatedToID, spec.LeadDays, dateValue(spec.StartsOn), dateValue(spec.EndsOn),
 			dateValue(spec.NextOccurrenceOn), dateValue(spec.LastSpawnedOn), active,
 			spec.CompletedAt, createdAt, valueOr(spec.CompletedAt, createdAt),
@@ -399,9 +412,16 @@ func (l *loader) loadRecurrenceHistory(recurrences map[string]recurrenceSpec) er
 	for day := daily.StartsOn; !day.After(l.today); day = day.AddDate(0, 0, 1) {
 		status := model.StatusDone
 		var completedAt *string
-		if day.Equal(l.today) {
+		var expiredAt *string
+		updatedAt := day
+		switch {
+		case day.Equal(l.today):
 			status = model.StatusTodo
-		} else {
+		case day.Equal(l.today.AddDate(0, 0, -1)):
+			status = model.StatusCancelled
+			expiredAt = ptr(l.timestamp(l.today, 0))
+			updatedAt = l.today
+		default:
 			completedAt = ptr(l.timestamp(day, 8))
 		}
 
@@ -410,8 +430,9 @@ func (l *loader) loadRecurrenceHistory(recurrences map[string]recurrenceSpec) er
 			RecurrenceID: &daily.ID, OccurrenceOn: &day, Source: daily.Source,
 			CaptureMethod: "recurrence", Title: daily.Title, Details: daily.Details,
 			Status: status, Priority: ptr(model.PriorityMedium), DueOn: &day, PlannedOn: &day,
-			EstimateMinutes: &daily.EstimateMinutes, CompletedAt: completedAt,
-			CreatedAt: day.AddDate(0, 0, -1), UpdatedAt: day,
+			DaySlot: daily.DaySlot, SlotOrder: daily.SlotOrder,
+			EstimateMinutes: &daily.EstimateMinutes, CompletedAt: completedAt, ExpiredAt: expiredAt,
+			CreatedAt: day.AddDate(0, 0, -1), UpdatedAt: updatedAt,
 		}); err != nil {
 			return err
 		}
@@ -701,16 +722,17 @@ func (l *loader) insertTask(spec taskSpec) error {
 		INSERT INTO tasks (
 			id, user_id, context_id, project_id, parent_id, recurrence_id, occurrence_on,
 			source_key, capture_method, title, details, status, priority, due_on, planned_on,
-			estimate_minutes, delegated_to_id, blocked_by_id, reference_url, reference_label,
-			completed_at, cancelled_at, created_at, updated_at, deleted_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			day_slot, slot_order, estimate_minutes, delegated_to_id, blocked_by_id,
+			reference_url, reference_label, completed_at, cancelled_at, expired_at,
+			created_at, updated_at, deleted_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		spec.ID, l.userID, spec.ContextID, spec.ProjectID, spec.ParentID,
 		spec.RecurrenceID, dateValue(spec.OccurrenceOn), emptyAsNil(spec.Source),
 		spec.CaptureMethod, spec.Title, emptyAsNil(spec.Details), spec.Status, spec.Priority,
-		dateValue(spec.DueOn), dateValue(spec.PlannedOn), spec.EstimateMinutes,
-		spec.DelegatedToID, spec.BlockedByID, emptyAsNil(spec.ReferenceURL),
-		emptyAsNil(spec.ReferenceLabel), spec.CompletedAt, spec.CancelledAt,
-		createdAt, updatedAt, spec.DeletedAt,
+		dateValue(spec.DueOn), dateValue(spec.PlannedOn), spec.DaySlot, spec.SlotOrder,
+		spec.EstimateMinutes, spec.DelegatedToID, spec.BlockedByID,
+		emptyAsNil(spec.ReferenceURL), emptyAsNil(spec.ReferenceLabel), spec.CompletedAt,
+		spec.CancelledAt, spec.ExpiredAt, createdAt, updatedAt, spec.DeletedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("fixtures: insert task %q: %w", spec.Title, err)
