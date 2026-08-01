@@ -67,6 +67,17 @@ type Config struct {
 	// non-empty. Empty accepts any origin; see the note in package mcpserver for
 	// why that is the default here.
 	MCPAllowedOrigins []string
+
+	// OpenRouterAPIKey enables AI-assisted report generation. It is server-only
+	// and is never returned by an API response.
+	OpenRouterAPIKey string
+
+	// OpenRouterBaseURL is configurable for tests and compatible gateways.
+	OpenRouterBaseURL string
+
+	// ReportGenerationTimeout bounds the complete validated generation attempt,
+	// including one retry for an invalid structured response.
+	ReportGenerationTimeout time.Duration
 }
 
 // OIDCProvider is one federated identity provider's client credentials.
@@ -173,7 +184,28 @@ func Load() (Config, error) {
 		cfg.MCPAllowedOrigins[i] = strings.TrimRight(origin, "/")
 	}
 
+	cfg.OpenRouterAPIKey = env("CHECKMATE_OPENROUTER_API_KEY", "")
+	cfg.OpenRouterBaseURL = strings.TrimRight(
+		env("CHECKMATE_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"), "/")
+	if err := validateHTTPURL("CHECKMATE_OPENROUTER_BASE_URL", cfg.OpenRouterBaseURL); err != nil {
+		return Config{}, err
+	}
+	if cfg.ReportGenerationTimeout, err = envDuration("CHECKMATE_REPORT_GENERATION_TIMEOUT", 120*time.Second); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
+}
+
+func validateHTTPURL(name, raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("config: %s is not a URL: %w", name, err)
+	}
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fmt.Errorf("config: %s must be an absolute http or https URL, got %q", name, raw)
+	}
+	return nil
 }
 
 // MCPResource is the canonical RFC 8707 resource identifier for the MCP endpoint.

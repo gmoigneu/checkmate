@@ -4,6 +4,7 @@ package fixtures
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -50,6 +51,7 @@ type activitySpec struct {
 	StatusBefore  *string
 	StatusAfter   *string
 	OccurredAt    string
+	SnapshotJSON  string
 }
 
 type contextSpec struct {
@@ -781,9 +783,23 @@ func (l *loader) stageTaskActivity(spec taskSpec, createdAt, updatedAt string) {
 		initialStatus = model.StatusInbox
 	}
 
+	createdSnapshot := fixtureTaskSnapshot(spec, createdAt, updatedAt)
+	createdSnapshot.Status = initialStatus
+	createdSnapshot.CompletedAt = nil
+	createdSnapshot.CancelledAt = nil
+	createdSnapshot.ExpiredAt = nil
+	createdSnapshot.DeletedAt = nil
+
+	representativeField := ""
+	if spec.Status == initialStatus && updatedAt > createdAt {
+		representativeField = representativeChangedField(spec)
+		clearSnapshotField(&createdSnapshot, representativeField)
+	}
+
 	l.activity = append(l.activity, activitySpec{
 		TaskID: spec.ID, TaskTitle: spec.Title, Action: "created",
 		StatusAfter: ptr(initialStatus), OccurredAt: createdAt,
+		SnapshotJSON: mustSnapshotJSON(createdSnapshot),
 	})
 
 	if spec.Status != initialStatus {
@@ -799,19 +815,23 @@ func (l *loader) stageTaskActivity(spec taskSpec, createdAt, updatedAt string) {
 			occurredAt = *spec.CancelledAt
 		}
 
+		updatedSnapshot := fixtureTaskSnapshot(spec, createdAt, updatedAt)
+		updatedSnapshot.DeletedAt = nil
 		l.activity = append(l.activity, activitySpec{
 			TaskID: spec.ID, TaskTitle: spec.Title, Action: "updated",
 			ChangedFields: changedFields, StatusBefore: ptr(initialStatus),
 			StatusAfter: ptr(spec.Status), OccurredAt: occurredAt,
+			SnapshotJSON: mustSnapshotJSON(updatedSnapshot),
 		})
 	} else if updatedAt > createdAt {
 		// Give long-lived pending fixture tasks a representative non-status
 		// mutation so the activity feed covers ordinary edits too.
 		l.activity = append(l.activity, activitySpec{
 			TaskID: spec.ID, TaskTitle: spec.Title, Action: "updated",
-			ChangedFields: representativeChangedField(spec),
+			ChangedFields: representativeField,
 			StatusBefore:  ptr(spec.Status), StatusAfter: ptr(spec.Status),
-			OccurredAt: updatedAt,
+			OccurredAt:   updatedAt,
+			SnapshotJSON: mustSnapshotJSON(fixtureTaskSnapshot(spec, createdAt, updatedAt)),
 		})
 	}
 
@@ -820,8 +840,48 @@ func (l *loader) stageTaskActivity(spec taskSpec, createdAt, updatedAt string) {
 			TaskID: spec.ID, TaskTitle: spec.Title, Action: "deleted",
 			ChangedFields: "deleted_at", StatusBefore: ptr(spec.Status),
 			StatusAfter: ptr(spec.Status), OccurredAt: *spec.DeletedAt,
+			SnapshotJSON: mustSnapshotJSON(fixtureTaskSnapshot(spec, createdAt, updatedAt)),
 		})
 	}
+}
+
+func fixtureTaskSnapshot(spec taskSpec, createdAt, updatedAt string) model.TaskSnapshot {
+	return model.TaskSnapshot{
+		ContextID: spec.ContextID, ProjectID: spec.ProjectID, ParentID: spec.ParentID,
+		RecurrenceID: spec.RecurrenceID, OccurrenceOn: dateString(spec.OccurrenceOn),
+		Source: emptyStringPtr(spec.Source), CaptureMethod: spec.CaptureMethod,
+		Title: spec.Title, Details: emptyStringPtr(spec.Details), Status: spec.Status,
+		Priority: spec.Priority, DueOn: dateString(spec.DueOn), PlannedOn: dateString(spec.PlannedOn),
+		DaySlot: spec.DaySlot, SlotOrder: int64(spec.SlotOrder),
+		EstimateMinutes: intPtr64(spec.EstimateMinutes), DelegatedToID: spec.DelegatedToID,
+		BlockedByID: spec.BlockedByID, CompletedAt: spec.CompletedAt,
+		CancelledAt: spec.CancelledAt, ExpiredAt: spec.ExpiredAt,
+		CreatedAt: createdAt, UpdatedAt: updatedAt, DeletedAt: spec.DeletedAt,
+	}
+}
+
+func clearSnapshotField(snapshot *model.TaskSnapshot, field string) {
+	switch field {
+	case "planned_on":
+		snapshot.PlannedOn = nil
+	case "due_on":
+		snapshot.DueOn = nil
+	case "priority":
+		snapshot.Priority = nil
+	case "details":
+		snapshot.Details = nil
+	case "title":
+		snapshot.Title = "Untitled fixture task"
+	}
+}
+
+func mustSnapshotJSON(snapshot model.TaskSnapshot) string {
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(raw)
 }
 
 func representativeChangedField(spec taskSpec) string {
@@ -857,10 +917,10 @@ func (l *loader) loadTaskActivity() error {
 		_, err := l.tx.ExecContext(l.ctx, `
 			INSERT INTO task_activity (
 				user_id, task_id, task_title, action, changed_fields,
-				status_before, status_after, occurred_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				status_before, status_after, occurred_at, snapshot_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			l.userID, item.TaskID, item.TaskTitle, item.Action, item.ChangedFields,
-			item.StatusBefore, item.StatusAfter, item.OccurredAt,
+			item.StatusBefore, item.StatusAfter, item.OccurredAt, item.SnapshotJSON,
 		)
 		if err != nil {
 			return fmt.Errorf("fixtures: insert task activity for %q: %w", item.TaskTitle, err)
@@ -929,6 +989,32 @@ func dateValue(value any) any {
 	default:
 		return nil
 	}
+}
+
+func dateString(value *time.Time) *string {
+	if value == nil {
+		return nil
+	}
+
+	formatted := value.Format(database.DateOnly)
+	return &formatted
+}
+
+func emptyStringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+
+	return &value
+}
+
+func intPtr64(value *int) *int64 {
+	if value == nil {
+		return nil
+	}
+
+	converted := int64(*value)
+	return &converted
 }
 
 func valueOr(value *string, fallback string) string {

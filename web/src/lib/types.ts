@@ -88,6 +88,70 @@ export interface TaskActivity {
 	occurred_at: string;
 }
 
+export interface ReportContext {
+	id: string;
+	name: string;
+}
+
+export interface ReportVersion {
+	id: string;
+	version_number: number;
+	content_markdown: string;
+	model: string;
+	input_tokens: number | null;
+	output_tokens: number | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface Report {
+	id: string;
+	title: string;
+	start_on: string;
+	end_on: string;
+	focus: string | null;
+	contexts: ReportContext[];
+	include_inbox: boolean;
+	latest_version: number;
+	created_at: string;
+	updated_at: string;
+	versions?: ReportVersion[];
+}
+
+export interface ReportMetrics {
+	completed: number;
+	open: number;
+	blocked: number;
+	delegated: number;
+	dropped: number;
+	inbox: number;
+	completed_estimate_minutes: number;
+	open_estimate_minutes: number;
+	completed_without_estimate: number;
+	open_without_estimate: number;
+}
+
+export interface ReportPreviewTask {
+	task_id: string;
+	title: string;
+	category: string;
+	context_name: string;
+}
+
+export interface ReportPreview {
+	metrics: ReportMetrics;
+	tasks: ReportPreviewTask[];
+	legacy_history: boolean;
+}
+
+export interface ReportRequest {
+	start_on: string;
+	end_on: string;
+	context_ids: string[];
+	include_inbox: boolean;
+	focus: string;
+}
+
 export interface Recurrence {
 	id: string;
 	kind: "classic" | "routine";

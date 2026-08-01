@@ -8,6 +8,9 @@ import type {
 	Project,
 	ProjectStatus,
 	Recurrence,
+	Report,
+	ReportPreview,
+	ReportRequest,
 	Task,
 	TaskActivity,
 } from "./types";
@@ -116,6 +119,36 @@ export const api = {
 		if (cursor) query.set("cursor", cursor);
 		return request<Collection<TaskActivity>>(`/v1/activity?${query}`);
 	},
+	reportConfig: () =>
+		request<{ configured: boolean; model: string }>("/v1/reports/config"),
+	reports: () => request<Collection<Report>>("/v1/reports"),
+	report: (id: string) => request<Report>(`/v1/reports/${id}`),
+	previewReport: (body: ReportRequest) =>
+		request<ReportPreview>("/v1/reports/preview", {
+			method: "POST",
+			body: JSON.stringify(body),
+		}),
+	generateReport: (body: ReportRequest) =>
+		request<Report>("/v1/reports/generate", {
+			method: "POST",
+			body: JSON.stringify(body),
+		}),
+	updateReport: (
+		id: string,
+		body: Partial<{
+			title: string;
+			content_markdown: string;
+			version_number: number;
+		}>,
+	) =>
+		request<Report>(`/v1/reports/${id}`, {
+			method: "PATCH",
+			body: JSON.stringify(body),
+		}),
+	regenerateReport: (id: string) =>
+		request<Report>(`/v1/reports/${id}/regenerate`, { method: "POST" }),
+	deleteReport: (id: string) =>
+		request<void>(`/v1/reports/${id}`, { method: "DELETE" }),
 	routines: () =>
 		request<Collection<Recurrence>>("/v1/recurrences?kind=routine&limit=200"),
 	createRoutine: (body: Record<string, unknown>) =>

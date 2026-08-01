@@ -278,6 +278,9 @@ it.
 | `CHECKMATE_OAUTH_MAX_DYNAMIC_CLIENTS` | `200` | Cap on open registration |
 | `CHECKMATE_MCP_ENABLED` | `true` | Serve the MCP endpoint at `/mcp` |
 | `CHECKMATE_MCP_ALLOWED_ORIGINS` | empty | Restrict the `Origin` header on `/mcp`; empty accepts any |
+| `CHECKMATE_OPENROUTER_API_KEY` | — | Enables AI report generation through OpenRouter |
+| `CHECKMATE_OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter-compatible API origin |
+| `CHECKMATE_REPORT_GENERATION_TIMEOUT` | `120s` | Overall timeout for report generation, including one structured-output retry |
 
 ### Setting up Google sign-in
 
@@ -417,6 +420,14 @@ All `/v1` routes need a bearer token or a session cookie. `/healthz` and the
 ```
 GET    /v1/sources
 GET    /v1/activity
+GET    /v1/reports/config
+POST   /v1/reports/preview
+POST   /v1/reports/generate
+GET    /v1/reports
+GET    /v1/reports/{id}
+PATCH  /v1/reports/{id}
+DELETE /v1/reports/{id}
+POST   /v1/reports/{id}/regenerate
 GET    /v1/{contexts,projects,people,recurrences,tasks}
 POST   /v1/{contexts,projects,people,recurrences,tasks}
 GET    /v1/{...}/{id}
@@ -434,6 +445,14 @@ resources return the object. `DELETE` returns 204.
 `GET /v1/activity` lists task mutations newest first. Database triggers record
 creates, updates, deletes and restores from every mutation path, including MCP
 and recurrence jobs. Status changes include their old and new values.
+
+The Report API reconstructs task state at the inclusive end of a requested date
+range from activity snapshots, then sends a privacy-filtered source document to
+`deepseek/deepseek-v4-flash` through OpenRouter. Previewing is deterministic and
+does not call the model. Generated reports retain their frozen source and every
+Markdown version; regeneration always uses that original source rather than live
+task data. Content edits must include `version_number` so a stale autosave cannot
+overwrite a newly generated version.
 
 ### Ownership
 

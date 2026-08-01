@@ -3,11 +3,13 @@ package database_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
 	"github.com/nls/checkmate/server/internal/database"
 	"github.com/nls/checkmate/server/internal/id"
+	"github.com/nls/checkmate/server/internal/model"
 )
 
 // newTestDB returns a migrated database backed by a file in the test's temp
@@ -159,7 +161,7 @@ func TestTaskActivityTriggersTrackMutationsOnce(t *testing.T) {
 	}
 
 	rows, err := db.Query(`
-		SELECT action, changed_fields, status_before, status_after
+		SELECT action, changed_fields, status_before, status_after, snapshot_json
 		FROM task_activity
 		WHERE task_id = ?
 		ORDER BY id`,
@@ -173,11 +175,14 @@ func TestTaskActivityTriggersTrackMutationsOnce(t *testing.T) {
 	type activity struct {
 		action, fields string
 		before, after  sql.NullString
+		snapshot       string
 	}
 	var got []activity
 	for rows.Next() {
 		var item activity
-		if err := rows.Scan(&item.action, &item.fields, &item.before, &item.after); err != nil {
+		if err := rows.Scan(
+			&item.action, &item.fields, &item.before, &item.after, &item.snapshot,
+		); err != nil {
 			t.Fatalf("scan activity: %v", err)
 		}
 		got = append(got, item)
@@ -206,6 +211,23 @@ func TestTaskActivityTriggersTrackMutationsOnce(t *testing.T) {
 	if !got[1].before.Valid || got[1].before.String != "todo" ||
 		!got[1].after.Valid || got[1].after.String != "done" {
 		t.Errorf("status transition = %#v -> %#v, want todo -> done", got[1].before, got[1].after)
+	}
+	for i, item := range got {
+		var snapshot model.TaskSnapshot
+		if err := json.Unmarshal([]byte(item.snapshot), &snapshot); err != nil {
+			t.Fatalf("activity %d snapshot is not valid: %v", i, err)
+		}
+		if snapshot.Title == "" {
+			t.Errorf("activity %d snapshot has no title", i)
+		}
+	}
+	var completed model.TaskSnapshot
+	if err := json.Unmarshal([]byte(got[1].snapshot), &completed); err != nil {
+		t.Fatal(err)
+	}
+	if completed.Title != "send proposal" || completed.Status != model.StatusDone ||
+		completed.CompletedAt == nil {
+		t.Errorf("completed snapshot = %+v", completed)
 	}
 
 	if _, err := db.Exec(`DELETE FROM users WHERE id = ?`, uid); err != nil {

@@ -42,6 +42,10 @@ type harness struct {
 }
 
 func newHarness(t *testing.T) *harness {
+	return newHarnessWithConfig(t, nil)
+}
+
+func newHarnessWithConfig(t *testing.T, configure func(*config.Config)) *harness {
 	t.Helper()
 
 	ctx := context.Background()
@@ -77,6 +81,9 @@ func newHarness(t *testing.T) *harness {
 		SecureCookies:      false,
 		SessionIdleTimeout: time.Hour,
 		SessionMaxLifetime: 24 * time.Hour,
+	}
+	if configure != nil {
+		configure(&cfg)
 	}
 
 	spawner := recurrence.New(st, log)

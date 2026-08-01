@@ -3,6 +3,7 @@ package fixtures
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -257,6 +258,22 @@ func assertFixtureActivity(
 	if activityCount != summary.Activity || createdCount != summary.Tasks {
 		t.Fatalf("activity=%d created=%d, want summary=%d tasks=%d",
 			activityCount, createdCount, summary.Activity, summary.Tasks)
+	}
+
+	var snapshotJSON string
+	if err := db.QueryRowContext(ctx, `
+		SELECT snapshot_json
+		FROM task_activity
+		WHERE user_id = ? AND status_after = ?
+		ORDER BY id DESC LIMIT 1`, userID, model.StatusDone).Scan(&snapshotJSON); err != nil {
+		t.Fatal(err)
+	}
+	var snapshot model.TaskSnapshot
+	if err := json.Unmarshal([]byte(snapshotJSON), &snapshot); err != nil {
+		t.Fatalf("decode fixture activity snapshot: %v", err)
+	}
+	if snapshot.Status != model.StatusDone || snapshot.CompletedAt == nil || snapshot.Title == "" {
+		t.Fatalf("completed activity snapshot = %+v", snapshot)
 	}
 
 	assertValues(t, db, `
