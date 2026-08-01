@@ -129,6 +129,7 @@ private struct ShareCaptureView: View {
       do {
         var body: [String: JSONValue] = [
           "title": .string(title.trimmingCharacters(in: .whitespacesAndNewlines)),
+          // The API contract assigns `chrome_ext` to every share extension client.
           "capture_method": .string("chrome_ext"),
         ]
         if let contextId { body["context_id"] = .string(contextId) }

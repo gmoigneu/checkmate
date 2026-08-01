@@ -41,6 +41,20 @@ public struct OAuthAuthorizationRequest: Sendable, Equatable {
   public let verifier: String
 }
 
+public enum OAuthCallbackError: Error, LocalizedError, Sendable, Equatable {
+  case invalidURL
+  case duplicateParameter(String)
+
+  public var errorDescription: String? {
+    switch self {
+    case .invalidURL:
+      "The sign-in response could not be read."
+    case .duplicateParameter(let name):
+      "The sign-in response contained the \(name) parameter more than once."
+    }
+  }
+}
+
 public struct OAuthService: Sendable {
   public let baseURL: URL
   public let redirectURI: String
@@ -98,6 +112,21 @@ public struct OAuthService: Sendable {
       throw APIError(status: 0, message: "Could not create the sign-in URL.")
     }
     return .init(url: url, state: state, verifier: pair.verifier)
+  }
+
+  public static func callbackParameters(from url: URL) throws -> [String: String] {
+    guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+      throw OAuthCallbackError.invalidURL
+    }
+    var parameters: [String: String] = [:]
+    for item in components.queryItems ?? [] {
+      guard let value = item.value else { continue }
+      guard parameters[item.name] == nil else {
+        throw OAuthCallbackError.duplicateParameter(item.name)
+      }
+      parameters[item.name] = value
+    }
+    return parameters
   }
 
   public func exchange(code: String, verifier: String, clientId: String) async throws -> OAuthTokens

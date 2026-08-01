@@ -4,12 +4,12 @@ import SwiftUI
 struct TriageDeckView: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(AppModel.self) private var model
-  let tasks: [CheckmateCore.Task]
+  let tasks: [CheckmateTask]
   @State private var index = 0
   @State private var offset: CGSize = .zero
   @State private var contextPicker = false
 
-  private var current: CheckmateCore.Task? { index < tasks.count ? tasks[index] : nil }
+  private var current: CheckmateTask? { index < tasks.count ? tasks[index] : nil }
 
   var body: some View {
     NavigationStack {

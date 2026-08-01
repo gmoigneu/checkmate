@@ -89,7 +89,7 @@ struct SettingsView: View {
       } message: {
         Text("The server is unchanged. This device’s credential and local cache will be removed.")
       }
-      .navigationDestination(for: CheckmateCore.Task.self) { TaskDetailView(task: $0) }
+      .navigationDestination(for: CheckmateTask.self) { TaskDetailView(task: $0) }
     }
   }
 
@@ -147,7 +147,7 @@ struct SearchTasksView: View {
   @Environment(AppModel.self) private var model
   @State private var query = ""
 
-  private var results: [CheckmateCore.Task] {
+  private var results: [CheckmateTask] {
     guard !query.isEmpty else { return [] }
     return model.tasks.filter {
       $0.title.localizedCaseInsensitiveContains(query)

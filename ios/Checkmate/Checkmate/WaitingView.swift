@@ -30,7 +30,7 @@ struct WaitingView: View {
         .refreshable { await model.refresh() }
       }
       .navigationTitle("Waiting")
-      .navigationDestination(for: CheckmateCore.Task.self) { TaskDetailView(task: $0) }
+      .navigationDestination(for: CheckmateTask.self) { TaskDetailView(task: $0) }
     }
   }
 }

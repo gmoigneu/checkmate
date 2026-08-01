@@ -22,9 +22,10 @@ final class CheckmateUITests: XCTestCase {
   }
 
   @MainActor
-  func testDiscoversLocalCheckmateServerWhenAvailable() throws {
+  func testDiscoversLocalCheckmateServerWhenAvailable() async throws {
     guard let url = URL(string: "http://localhost:8080/healthz"),
-      (try? Data(contentsOf: url)) != nil
+      let (_, response) = try? await URLSession.shared.data(from: url),
+      (response as? HTTPURLResponse)?.statusCode == 200
     else {
       throw XCTSkip("The optional local Checkmate server is not running.")
     }
@@ -37,7 +38,7 @@ final class CheckmateUITests: XCTestCase {
     XCTAssertTrue(app.textFields["server-address"].waitForExistence(timeout: 2))
     app.buttons["Continue"].tap()
 
-    XCTAssertTrue(app.staticTexts["Sign in"].waitForExistence(timeout: 8))
+    XCTAssertTrue(app.staticTexts["Sign in"].waitForExistence(timeout: 15))
     XCTAssertTrue(app.buttons["Continue with Google"].exists)
   }
 

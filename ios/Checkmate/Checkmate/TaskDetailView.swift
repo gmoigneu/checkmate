@@ -4,7 +4,7 @@ import SwiftUI
 struct TaskDetailView: View {
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
-  let task: CheckmateCore.Task
+  let task: CheckmateTask
 
   @State private var title: String
   @State private var details: String
@@ -23,7 +23,7 @@ struct TaskDetailView: View {
   @State private var saving = false
   @State private var confirmDelete = false
 
-  init(task: CheckmateCore.Task) {
+  init(task: CheckmateTask) {
     self.task = task
     _title = State(initialValue: task.title)
     _details = State(initialValue: task.details ?? "")
@@ -45,11 +45,11 @@ struct TaskDetailView: View {
     model.projects.filter { $0.contextId == contextId && $0.status != .archived }
   }
 
-  private var children: [CheckmateCore.Task] {
+  private var children: [CheckmateTask] {
     model.tasks.filter { $0.parentId == task.id }
   }
 
-  private var blocking: [CheckmateCore.Task] {
+  private var blocking: [CheckmateTask] {
     model.tasks.filter { $0.blockedById == task.id }
   }
 

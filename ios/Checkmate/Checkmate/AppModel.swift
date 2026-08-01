@@ -20,7 +20,7 @@ final class AppModel {
   var projects: [Project] = []
   var people: [Person] = []
   var recurrences: [Recurrence] = []
-  var tasks: [CheckmateCore.Task] = []
+  var tasks: [CheckmateTask] = []
   var sources: [CheckmateCore.Source] = []
   var reports: [Report] = []
   var reportConfiguration: ReportConfiguration?
@@ -31,13 +31,13 @@ final class AppModel {
   var toastMessage: String?
   var captureRequested = false
   var briefRequested = false
-  var deepLinkedTask: CheckmateCore.Task?
+  var deepLinkedTask: CheckmateTask?
 
   private(set) var serverURL: URL?
   private(set) var validatedServer: ValidatedServer?
   private(set) var client: APIClient?
   private let vault: CredentialVault
-  private let store: LocalStore
+  private let store: LocalStore?
   private let defaults: UserDefaults
   private let oauthCoordinator = OAuthCoordinator()
 
@@ -49,14 +49,24 @@ final class AppModel {
     do {
       store = try isUITesting ? LocalStore(inMemory: true) : LocalStore.shared()
     } catch {
-      store = try! LocalStore(inMemory: true)
-      alertMessage =
-        "The local cache could not be opened. Checkmate will use a temporary cache for this launch."
+      do {
+        store = try LocalStore(inMemory: true)
+        alertMessage =
+          "The local cache could not be opened. Checkmate will use a temporary cache for this launch."
+      } catch {
+        store = nil
+        alertMessage =
+          "The local cache is unavailable. Checkmate can reconnect after you restart the app."
+      }
     }
   }
 
   func restoreSession() async {
     guard phase == .launching else { return }
+    guard let store else {
+      phase = .onboarding
+      return
+    }
     if ProcessInfo.processInfo.arguments.contains("-ui-testing") {
       defaults.removeObject(forKey: SharedConfiguration.serverURLKey)
     }
@@ -119,11 +129,7 @@ final class AppModel {
     }
     let request = try oauth.authorizationRequest(clientId: clientId)
     let callback = try await oauthCoordinator.authenticate(url: request.url)
-    let components = URLComponents(url: callback, resolvingAgainstBaseURL: false)
-    let values = Dictionary(
-      uniqueKeysWithValues: (components?.queryItems ?? []).compactMap { item in
-        item.value.map { (item.name, $0) }
-      })
+    let values = try OAuthService.callbackParameters(from: callback)
     if let error = values["error"] {
       throw APIError(status: 0, message: values["error_description"] ?? error)
     }
@@ -142,7 +148,7 @@ final class AppModel {
   }
 
   func refresh(fullSync: Bool = false) async {
-    guard !isRefreshing, let client else { return }
+    guard !isRefreshing, let client, let store else { return }
     isRefreshing = true
     defer { isRefreshing = false }
     do {
@@ -165,7 +171,7 @@ final class AppModel {
     }
   }
 
-  func setStatus(_ task: CheckmateCore.Task, to status: TaskStatus) async {
+  func setStatus(_ task: CheckmateTask, to status: TaskStatus) async {
     guard let client else { return }
     guard profile?.canWrite != false else {
       toastMessage = "This credential is read-only."
@@ -180,13 +186,13 @@ final class AppModel {
     }
   }
 
-  func updateTask(_ task: CheckmateCore.Task, body: [String: JSONValue]) async throws {
+  func updateTask(_ task: CheckmateTask, body: [String: JSONValue]) async throws {
     guard let client else { return }
     _ = try await client.updateTask(id: task.id, body: body)
     await refresh()
   }
 
-  func deleteTask(_ task: CheckmateCore.Task) async throws {
+  func deleteTask(_ task: CheckmateTask) async throws {
     guard let client else { return }
     try await client.deleteTask(id: task.id)
     await refresh()
@@ -221,7 +227,7 @@ final class AppModel {
 
   func signOut() async {
     try? await vault.clear()
-    try? await store.clear()
+    if let store { try? await store.clear() }
     defaults.removeObject(forKey: SharedConfiguration.serverURLKey)
     profile = nil
     brief = nil
@@ -275,7 +281,9 @@ final class AppModel {
   }
 
   private func loadAuthenticatedSession(firstSync: Bool) async throws {
-    guard let client else { return }
+    guard let client, let store else {
+      throw APIError(status: 0, message: "The local cache is unavailable.")
+    }
     phase = .syncing(progress: firstSync ? "Preparing your first sync…" : "Refreshing your brief…")
     profile = try await client.me()
     let snapshot = try await SyncEngine(client: client, store: store).run(full: firstSync)

@@ -152,7 +152,7 @@ public struct APIClient: Sendable {
     let _: EmptyResponse = try await request("v1/recurrences/\(id)", method: .delete)
   }
 
-  public func tasks(query: [URLQueryItem] = []) async throws -> CollectionResponse<Task> {
+  public func tasks(query: [URLQueryItem] = []) async throws -> CollectionResponse<CheckmateTask> {
     var items = query
     if !items.contains(where: { $0.name == "limit" }) {
       items.append(.init(name: "limit", value: "200"))
@@ -160,13 +160,13 @@ public struct APIClient: Sendable {
     return try await request("v1/tasks", query: items)
   }
 
-  public func task(id: String) async throws -> Task { try await request("v1/tasks/\(id)") }
+  public func task(id: String) async throws -> CheckmateTask { try await request("v1/tasks/\(id)") }
 
-  public func createTask(_ body: [String: JSONValue]) async throws -> Task {
+  public func createTask(_ body: [String: JSONValue]) async throws -> CheckmateTask {
     try await request("v1/tasks", method: .post, body: body)
   }
 
-  public func updateTask(id: String, body: [String: JSONValue]) async throws -> Task {
+  public func updateTask(id: String, body: [String: JSONValue]) async throws -> CheckmateTask {
     try await request("v1/tasks/\(id)", method: .patch, body: body)
   }
 
@@ -174,7 +174,7 @@ public struct APIClient: Sendable {
     let _: EmptyResponse = try await request("v1/tasks/\(id)", method: .delete)
   }
 
-  public func restoreTask(id: String) async throws -> Task {
+  public func restoreTask(id: String) async throws -> CheckmateTask {
     try await request("v1/tasks/\(id)/restore", method: .post, body: Optional<String>.none)
   }
 

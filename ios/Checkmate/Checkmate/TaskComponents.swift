@@ -3,7 +3,7 @@ import SwiftUI
 
 struct TaskRowView: View {
   @Environment(AppModel.self) private var model
-  let task: CheckmateCore.Task
+  let task: CheckmateTask
   var showContext = true
 
   private var context: CheckmateContext? {
@@ -49,7 +49,7 @@ struct TaskRowView: View {
               .foregroundStyle(CheckmateTheme.olive)
           }
           if let estimate = task.estimateMinutes {
-            Label(format(minutes: estimate), systemImage: "clock")
+            Label(DurationText.minutes(estimate), systemImage: "clock")
           }
         }
         .font(.caption.monospacedDigit())
@@ -71,15 +71,11 @@ struct TaskRowView: View {
     .accessibilityElement(children: .combine)
   }
 
-  private func format(minutes: Int64) -> String {
-    minutes >= 60
-      ? "\(minutes / 60)h\(minutes % 60 == 0 ? "" : " \(minutes % 60)m")" : "\(minutes)m"
-  }
 }
 
 struct TaskCardSection: View {
   let title: String
-  let tasks: [CheckmateCore.Task]
+  let tasks: [CheckmateTask]
   var footer: String?
 
   var body: some View {
@@ -104,7 +100,7 @@ struct BriefSummaryView: View {
         metric(totals.planned, "planned", CheckmateTheme.olive)
         metric(totals.completedToday, "done", CheckmateTheme.tertiary)
         VStack(alignment: .leading, spacing: 2) {
-          Text(format(minutes: totals.plannedMinutes)).font(.headline.monospacedDigit())
+          Text(DurationText.minutes(totals.plannedMinutes)).font(.headline.monospacedDigit())
           Text(
             totals.plannedWithoutEstimate == 0
               ? "estimated" : "+ \(totals.plannedWithoutEstimate) unestimated"
@@ -125,9 +121,5 @@ struct BriefSummaryView: View {
     }
     .padding(.horizontal, 12).padding(.vertical, 10)
     .background(CheckmateTheme.card, in: RoundedRectangle(cornerRadius: 10))
-  }
-
-  private func format(minutes: Int) -> String {
-    minutes >= 60 ? "\(minutes / 60)h\(minutes % 60 == 0 ? "" : "\(minutes % 60)")" : "\(minutes)m"
   }
 }

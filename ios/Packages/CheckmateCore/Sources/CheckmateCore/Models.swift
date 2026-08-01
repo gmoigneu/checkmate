@@ -108,7 +108,7 @@ public struct Person: Codable, Identifiable, Hashable, Sendable {
   public let rev: Int64
 }
 
-public struct Task: Codable, Identifiable, Hashable, Sendable {
+public struct CheckmateTask: Codable, Identifiable, Hashable, Sendable {
   public let id: String
   public let contextId: String?
   public let projectId: String?
@@ -172,7 +172,7 @@ public struct WaitingGroup: Codable, Identifiable, Hashable, Sendable {
   public var id: String { personId }
   public let personId: String
   public let personName: String
-  public let tasks: [Task]
+  public let tasks: [CheckmateTask]
 }
 
 public struct BriefTotals: Codable, Hashable, Sendable {
@@ -196,16 +196,16 @@ public struct BriefTotals: Codable, Hashable, Sendable {
 public struct Brief: Codable, Hashable, Sendable {
   public let date: String
   public let timezone: String
-  public let overdue: [Task]
-  public let dueToday: [Task]
-  public let planned: [Task]
-  public let inProgress: [Task]
-  public let inbox: [Task]
-  public let blocked: [Task]
+  public let overdue: [CheckmateTask]
+  public let dueToday: [CheckmateTask]
+  public let planned: [CheckmateTask]
+  public let inProgress: [CheckmateTask]
+  public let inbox: [CheckmateTask]
+  public let blocked: [CheckmateTask]
   public let waitingOn: [WaitingGroup]
-  public let routine: [Task]
-  public let completedToday: [Task]
-  public let cancelledToday: [Task]
+  public let routine: [CheckmateTask]
+  public let completedToday: [CheckmateTask]
+  public let cancelledToday: [CheckmateTask]
   public let totals: BriefTotals
 }
 
@@ -230,7 +230,7 @@ public struct SyncChanges: Codable, Sendable {
   public let projects: [Project]
   public let people: [Person]
   public let recurrences: [Recurrence]
-  public let tasks: [Task]
+  public let tasks: [CheckmateTask]
 }
 
 public struct SyncResult: Codable, Sendable {
@@ -334,5 +334,5 @@ public protocol CacheableRecord: Codable, Identifiable, Sendable where ID == Str
 extension CheckmateContext: CacheableRecord {}
 extension Project: CacheableRecord {}
 extension Person: CacheableRecord {}
-extension Task: CacheableRecord {}
+extension CheckmateTask: CacheableRecord {}
 extension Recurrence: CacheableRecord {}

@@ -5,7 +5,7 @@ struct InboxView: View {
   @Environment(AppModel.self) private var model
   @State private var triagePresented = false
 
-  private var inbox: [CheckmateCore.Task] {
+  private var inbox: [CheckmateTask] {
     model.tasks.filter { $0.status == .inbox }.sorted { $0.createdAt < $1.createdAt }
   }
 
@@ -32,7 +32,7 @@ struct InboxView: View {
         .refreshable { await model.refresh() }
       }
       .navigationTitle("Inbox")
-      .navigationDestination(for: CheckmateCore.Task.self) { TaskDetailView(task: $0) }
+      .navigationDestination(for: CheckmateTask.self) { TaskDetailView(task: $0) }
       .sheet(isPresented: $triagePresented) { TriageDeckView(tasks: inbox) }
     }
   }

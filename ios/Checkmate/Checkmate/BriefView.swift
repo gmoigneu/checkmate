@@ -71,7 +71,7 @@ struct BriefView: View {
         }
       }
       .overlay { if isLoadingDate { ProgressView().controlSize(.large) } }
-      .navigationDestination(for: CheckmateCore.Task.self) { TaskDetailView(task: $0) }
+      .navigationDestination(for: CheckmateTask.self) { TaskDetailView(task: $0) }
     }
   }
 
@@ -100,7 +100,8 @@ struct BriefView: View {
     }
     if !planned.isEmpty {
       TaskCardSection(
-        title: "Planned today · \(brief.totals.planned) · \(brief.totals.plannedMinutes)m",
+        title:
+          "Planned today · \(brief.totals.planned) · \(DurationText.minutes(brief.totals.plannedMinutes))",
         tasks: planned)
     }
     if !brief.blocked.isEmpty {

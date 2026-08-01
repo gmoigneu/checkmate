@@ -99,6 +99,9 @@ public actor CredentialVault {
   private let keychain: KeychainStore
   private let account: String
   private var cached: StoredCredential?
+  private var refreshTask: _Concurrency.Task<OAuthTokens, any Error>?
+  private var refreshGeneration = 0
+  private var credentialRevision = 0
 
   public init(keychain: KeychainStore = KeychainStore(), account: String = "primary") {
     self.keychain = keychain
@@ -114,12 +117,14 @@ public actor CredentialVault {
   }
 
   public func store(_ credential: StoredCredential) throws {
-    let data = try JSONEncoder().encode(credential)
-    try keychain.set(data, for: account)
-    cached = credential
+    credentialRevision += 1
+    cancelRefresh()
+    try persist(credential)
   }
 
   public func clear() throws {
+    credentialRevision += 1
+    cancelRefresh()
     try keychain.delete(account)
     cached = nil
   }
@@ -132,9 +137,39 @@ public actor CredentialVault {
     case .oauth(let tokens):
       if tokens.expiresAt.timeIntervalSinceNow > 60 { return tokens.accessToken }
       guard let oauth, let refreshToken = tokens.refreshToken else { return tokens.accessToken }
-      let refreshed = try await oauth.refresh(refreshToken: refreshToken, clientId: tokens.clientId)
-      try store(.oauth(refreshed))
+
+      let revision = credentialRevision
+      if let refreshTask {
+        let refreshed = try await refreshTask.value
+        guard revision == credentialRevision else { throw CancellationError() }
+        return refreshed.accessToken
+      }
+
+      refreshGeneration += 1
+      let generation = refreshGeneration
+      let task = _Concurrency.Task {
+        try await oauth.refresh(refreshToken: refreshToken, clientId: tokens.clientId)
+      }
+      refreshTask = task
+      defer {
+        if generation == refreshGeneration { refreshTask = nil }
+      }
+      let refreshed = try await task.value
+      guard revision == credentialRevision else { throw CancellationError() }
+      try persist(.oauth(refreshed))
       return refreshed.accessToken
     }
+  }
+
+  private func persist(_ credential: StoredCredential) throws {
+    let data = try JSONEncoder().encode(credential)
+    try keychain.set(data, for: account)
+    cached = credential
+  }
+
+  private func cancelRefresh() {
+    refreshGeneration += 1
+    refreshTask?.cancel()
+    refreshTask = nil
   }
 }

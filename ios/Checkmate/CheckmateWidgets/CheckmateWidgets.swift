@@ -10,7 +10,7 @@ private struct BriefEntry: TimelineEntry {
   let planned: Int
   let plannedMinutes: Int64
   let waiting: Int
-  let tasks: [CheckmateCore.Task]
+  let tasks: [CheckmateTask]
   let lastSyncAt: Date?
 }
 
@@ -46,8 +46,10 @@ private struct BriefProvider: TimelineProvider {
           ($0.estimateMinutes ?? 0) < ($1.estimateMinutes ?? 0)
         }
         let plannedTasks = open.filter { $0.plannedOn == today }
-        let unique = Dictionary(grouping: overdueTasks + dueTasks + plannedTasks, by: \.id)
-          .compactMap(\.value.first)
+        var seen = Set<String>()
+        let unique = (overdueTasks + dueTasks + plannedTasks).filter {
+          seen.insert($0.id).inserted
+        }
         completion(
           BriefEntry(
             date: .now,
@@ -103,7 +105,8 @@ private struct BriefWidgetView: View {
             metric(entry.planned, "plan", .green)
           }
           Spacer()
-          Text("\(format(entry.plannedMinutes)) planned").font(.caption).foregroundStyle(.secondary)
+          Text("\(DurationText.minutes(entry.plannedMinutes)) planned").font(.caption)
+            .foregroundStyle(.secondary)
         }
         freshness
       }
@@ -178,10 +181,6 @@ private struct BriefWidgetView: View {
       Text(value, format: .number).font(.title2.bold()).foregroundStyle(color)
       Text(label).font(.caption2).foregroundStyle(.secondary)
     }
-  }
-
-  private func format(_ minutes: Int64) -> String {
-    minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
   }
 }
 

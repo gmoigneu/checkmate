@@ -39,6 +39,29 @@ struct AuthenticationTests {
     #expect(!pair.challenge.contains("/"))
     #expect(pair.challenge.count == 43)
   }
+
+  @Test func parsesOAuthCallbackParameters() throws {
+    let url = URL(string: "io.nls.checkmate:/oauth/callback?code=abc&state=expected")!
+    #expect(
+      try OAuthService.callbackParameters(from: url)
+        == ["code": "abc", "state": "expected"])
+  }
+
+  @Test func rejectsDuplicateOAuthCallbackParameters() {
+    let url = URL(string: "io.nls.checkmate:/oauth/callback?code=abc&code=def")!
+    #expect(throws: OAuthCallbackError.duplicateParameter("code")) {
+      try OAuthService.callbackParameters(from: url)
+    }
+  }
+}
+
+@Suite("Duration text")
+struct DurationTextTests {
+  @Test func formatsMinutesAndHours() {
+    #expect(DurationText.minutes(45) == "45m")
+    #expect(DurationText.minutes(60) == "1h")
+    #expect(DurationText.minutes(90) == "1h 30m")
+  }
 }
 
 @Suite("Capture parser")

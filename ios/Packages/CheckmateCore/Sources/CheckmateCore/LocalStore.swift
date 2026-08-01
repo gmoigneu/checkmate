@@ -40,14 +40,14 @@ public struct CacheSnapshot: Sendable {
   public let projects: [Project]
   public let people: [Person]
   public let recurrences: [Recurrence]
-  public let tasks: [Task]
+  public let tasks: [CheckmateTask]
   public let sources: [Source]
   public let cursor: Int64
   public let lastSyncAt: Date?
 
   public init(
     contexts: [CheckmateContext] = [], projects: [Project] = [], people: [Person] = [],
-    recurrences: [Recurrence] = [], tasks: [Task] = [], sources: [Source] = [],
+    recurrences: [Recurrence] = [], tasks: [CheckmateTask] = [], sources: [Source] = [],
     cursor: Int64 = 0, lastSyncAt: Date? = nil
   ) {
     self.contexts = contexts
