@@ -44,6 +44,7 @@ import {
 } from "@/components/context-project-management";
 import { ReportPage } from "@/components/report-page";
 import { RoutinePage } from "@/components/routine-page";
+import { SettingsPage } from "@/components/settings-page";
 import { StatusBadge, TaskStatusMenu } from "@/components/task-status-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -336,7 +337,8 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 					fixedStatus="blocked"
 				/>
 			);
-		if (page === "settings") return <SettingsPage me={me.data} />;
+		if (page === "settings")
+			return <SettingsPage me={me.data} pathname={location.pathname} />;
 		if (page === "organization") return <ContextProjectSettingsPage />;
 		if (page === "context")
 			return (
@@ -2328,66 +2330,6 @@ function ProjectPage({
 				/>
 			)}
 		</section>
-	);
-}
-
-function SettingsPage({
-	me,
-}: {
-	me?: { name: string; email: string; timezone: string };
-}) {
-	return (
-		<section className="max-w-2xl">
-			<p className="mb-2 text-sm font-medium text-muted-foreground">
-				Your space, your rules.
-			</p>
-			<h1 className="mb-8 font-display text-4xl tracking-tight">Settings</h1>
-			<div className="overflow-hidden rounded-2xl border border-border bg-card">
-				<SettingsRow
-					label="Account"
-					value={me ? `${me.name} · ${me.email}` : "Loading…"}
-				/>
-				<SettingsRow
-					label="Contexts & projects"
-					value="Organize your work"
-					to="/settings/contexts"
-				/>
-				<SettingsRow label="Timezone" value={me?.timezone ?? "—"} />
-				<SettingsRow label="Appearance" value="System" />
-				<SettingsRow label="Sync" value="Up to date" />
-				<SettingsRow label="Access tokens" value="Manage connected devices" />
-			</div>
-		</section>
-	);
-}
-function SettingsRow({
-	label,
-	value,
-	to,
-}: {
-	label: string;
-	value: string;
-	to?: "/settings/contexts";
-}) {
-	const content = (
-		<>
-			<span className="font-medium">{label}</span>
-			<span className="flex items-center gap-2 text-sm text-muted-foreground">
-				{value}
-				<ChevronRight className="size-4" />
-			</span>
-		</>
-	);
-	const className =
-		"flex w-full items-center justify-between border-b border-border px-5 py-4 text-left last:border-0 hover:bg-muted/40";
-	return to ? (
-		<Link to={to} className={className}>
-			{content}
-		</Link>
-	) : (
-		<button type="button" className={className}>
-			{content}
-		</button>
 	);
 }
 

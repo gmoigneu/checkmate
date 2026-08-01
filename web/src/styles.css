@@ -144,6 +144,102 @@
   --shadow-accent: 0 6px 18px rgb(192 94 60 / 24%);
 }
 
+:root[data-appearance="dark"] {
+  color-scheme: dark;
+  --paper-000: #27221e;
+  --paper-050: #1c1916;
+  --paper-100: #302a25;
+  --paper-200: #3b342e;
+  --paper-300: #4a4139;
+  --ink-900: #f7f0e7;
+  --ink-700: #e7ded3;
+  --ink-500: #bfb3a6;
+  --ink-400: #a3978a;
+  --ink-300: #756a60;
+  --ink-200: #5d554d;
+  --terracotta-050: #3b2923;
+  --terracotta-100: #4b3027;
+  --terracotta-300: #9a674f;
+  --terracotta-500: #df805d;
+  --terracotta-600: #ee9877;
+  --terracotta-700: #f4ad91;
+  --olive-050: #293026;
+  --olive-100: #313a2b;
+  --olive-300: #667052;
+  --olive-500: #a0aa7d;
+  --olive-600: #bdc895;
+  --ochre-050: #392f20;
+  --ochre-100: #443824;
+  --ochre-300: #806b3e;
+  --ochre-500: #d4ad55;
+  --ochre-600: #e6c675;
+  --border-subtle: rgb(247 240 231 / 7%);
+  --border-default: rgb(247 240 231 / 13%);
+  --border-strong: rgb(247 240 231 / 24%);
+  --surface-hover: rgb(247 240 231 / 6%);
+  --surface-press: rgb(247 240 231 / 10%);
+  --shadow-inset: inset 0 1px 2px rgb(0 0 0 / 28%);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 32%), 0 2px 8px rgb(0 0 0 / 18%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-appearance="system"] {
+    color-scheme: dark;
+    --paper-000: #27221e;
+    --paper-050: #1c1916;
+    --paper-100: #302a25;
+    --paper-200: #3b342e;
+    --paper-300: #4a4139;
+    --ink-900: #f7f0e7;
+    --ink-700: #e7ded3;
+    --ink-500: #bfb3a6;
+    --ink-400: #a3978a;
+    --ink-300: #756a60;
+    --ink-200: #5d554d;
+    --terracotta-050: #3b2923;
+    --terracotta-100: #4b3027;
+    --terracotta-300: #9a674f;
+    --terracotta-500: #df805d;
+    --terracotta-600: #ee9877;
+    --terracotta-700: #f4ad91;
+    --olive-050: #293026;
+    --olive-100: #313a2b;
+    --olive-300: #667052;
+    --olive-500: #a0aa7d;
+    --olive-600: #bdc895;
+    --ochre-050: #392f20;
+    --ochre-100: #443824;
+    --ochre-300: #806b3e;
+    --ochre-500: #d4ad55;
+    --ochre-600: #e6c675;
+    --border-subtle: rgb(247 240 231 / 7%);
+    --border-default: rgb(247 240 231 / 13%);
+    --border-strong: rgb(247 240 231 / 24%);
+    --surface-hover: rgb(247 240 231 / 6%);
+    --surface-press: rgb(247 240 231 / 10%);
+    --shadow-inset: inset 0 1px 2px rgb(0 0 0 / 28%);
+    --shadow-lg: 0 12px 32px rgb(0 0 0 / 32%), 0 2px 8px rgb(0 0 0 / 18%);
+  }
+}
+
+:root[data-density="compact"] .cm-page {
+  padding-top: 22px;
+}
+
+:root[data-density="compact"] .cm-task-row {
+  min-height: 30px;
+  padding-block: 2px;
+}
+
+:root[data-reduce-motion="true"] *,
+:root[data-reduce-motion="true"] *::before,
+:root[data-reduce-motion="true"] *::after {
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+
 .cm-status-expired {
   border-color: var(--task-expired-border);
   background: var(--task-expired-bg);
