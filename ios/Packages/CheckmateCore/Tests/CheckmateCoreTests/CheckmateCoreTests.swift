@@ -28,6 +28,24 @@ struct ServerDiscoveryTests {
       try ServerDiscovery.normalizedURL(from: "http://tasks.example.com")
     }
   }
+
+  @Test func rejectsHostnamesDisguisedAsLoopbackAddresses() {
+    for address in [
+      "http://127.evil.example",
+      "http://127.0.0.1.evil.example",
+      "http://127.300.0.1",
+    ] {
+      #expect(throws: ServerValidationError.insecureTransport) {
+        try ServerDiscovery.normalizedURL(from: address)
+      }
+    }
+  }
+
+  @Test func acceptsTheIPv4LoopbackRange() throws {
+    #expect(
+      try ServerDiscovery.normalizedURL(from: "http://127.12.34.56:8080").absoluteString
+        == "http://127.12.34.56:8080")
+  }
 }
 
 @Suite("Authentication")

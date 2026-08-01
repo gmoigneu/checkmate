@@ -58,7 +58,14 @@ public enum ServerDiscovery {
 
   private static func isLoopback(_ host: String) -> Bool {
     let value = host.lowercased()
-    return value == "localhost" || value == "::1" || value.hasPrefix("127.")
+    if value == "localhost" || value == "::1" { return true }
+
+    let octets = value.split(separator: ".", omittingEmptySubsequences: false)
+    guard octets.count == 4, octets[0] == "127" else { return false }
+    return octets.allSatisfy { octet in
+      !octet.isEmpty && octet.utf8.allSatisfy { (48...57).contains($0) }
+        && Int(octet).map { $0 <= 255 } == true
+    }
   }
 
   public static func validate(_ input: String, session: URLSession = .shared) async throws
