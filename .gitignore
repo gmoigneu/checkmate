@@ -21,3 +21,9 @@ dist/
 .idea/
 .vscode/
 *.swp
+
+# Xcode user state and local SwiftPM build products
+xcuserdata/
+*.xcuserstate
+ios/Packages/*/.build/
+.swiftpm/

@@ -432,7 +432,9 @@ What a client implementer needs to know:
 - Redirect URIs are the app's own choice at registration. With
   `application_type: native`, both loopback (`http://127.0.0.1:PORT/callback`) and a
   reversed-domain private-use scheme (`com.example.app:/oauth/callback`) are
-  accepted; the latter is more reliable inside `ASWebAuthenticationSession`.
+  accepted. Private-use callbacks are returned on a no-store handoff page with an
+  explicit link because Safari/WebKit does not reliably launch a custom scheme from
+  an HTTP redirect.
 
 `GET /v1/grants` lists connected clients; `DELETE /v1/grants/{id}` withdraws consent
 and kills every token under it.

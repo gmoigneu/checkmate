@@ -232,6 +232,37 @@ export interface Me {
 	scopes: string[];
 }
 
+export interface Health {
+	status: "ok" | "degraded";
+	version: string;
+	database: "ok" | "unreachable";
+}
+
+export interface DeviceToken {
+	id: string;
+	name: string;
+	scopes: Array<"read" | "write">;
+	last_used_at: string | null;
+	expires_at: string | null;
+	revoked_at: string | null;
+	created_at: string;
+}
+
+export interface CreatedDeviceToken extends DeviceToken {
+	token: string;
+}
+
+export interface OAuthGrant {
+	id: string;
+	client_id: string;
+	client_name: string;
+	client_uri: string | null;
+	scopes: string[];
+	audience: string;
+	created_at: string;
+	updated_at: string;
+}
+
 export interface ApiErrorPayload {
 	error: string;
 	fields?: Record<string, string>;

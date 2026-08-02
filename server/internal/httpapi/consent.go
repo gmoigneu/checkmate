@@ -162,6 +162,58 @@ var oauthErrorTemplate = template.Must(template.New("oauth_error").Parse(`<!doct
 </html>
 `))
 
+var nativeAppRedirectTemplate = template.Must(template.New("native_app_redirect").Parse(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Return to Checkmate</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 1.5rem;
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: #f6f7f9; color: #16181d;
+  }
+  .card {
+    width: 100%; max-width: 27rem; background: #fff; border-radius: 14px;
+    border: 1px solid #e3e6ea; padding: 1.75rem; text-align: center;
+  }
+  h1 { font-size: 1.2rem; margin: 0 0 .5rem; }
+  p { color: #5c6370; font-size: .9rem; margin: 0 0 1.25rem; }
+  a {
+    display: block; padding: .7rem 1rem; border-radius: 8px; font-weight: 600;
+    text-decoration: none; background: #1f6feb; color: #fff;
+  }
+  a:hover { background: #1a5fd0; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0f1115; color: #e7e9ee; }
+    .card { background: #171a20; border-color: #272b33; }
+    p { color: #9aa1ad; }
+  }
+</style>
+</head>
+<body>
+<main class="card">
+  {{if .Approved}}
+  <h1>Authorization approved</h1>
+  <p>Return to the Checkmate app to finish connecting your account.</p>
+  {{else}}
+  <h1>Authorization declined</h1>
+  <p>Return to the Checkmate app to continue without connecting this account.</p>
+  {{end}}
+  <a href="{{.Redirect}}">Open Checkmate</a>
+</main>
+</body>
+</html>
+`))
+
+type nativeAppRedirectView struct {
+	Redirect template.URL
+	Approved bool
+}
+
 // consentView is the data the consent template renders.
 type consentView struct {
 	oauth.PendingAuthorization
@@ -235,5 +287,22 @@ func (s *Server) renderOAuthError(w http.ResponseWriter, _ *http.Request, err *o
 
 	if execErr := oauthErrorTemplate.Execute(w, err); execErr != nil {
 		s.log.Error("render oauth error page", slog.Any("error", execErr))
+	}
+}
+
+func (s *Server) renderNativeAppRedirect(w http.ResponseWriter, redirect string, approved bool) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+
+	// Both authorization outcomes derive their callback from the exact, previously
+	// validated redirect registered to this client. Marking it as a template URL
+	// preserves its custom scheme instead of html/template replacing it with #ZgotmplZ.
+	view := nativeAppRedirectView{Redirect: template.URL(redirect), Approved: approved}
+	if err := nativeAppRedirectTemplate.Execute(w, view); err != nil {
+		s.log.Error("render native app redirect", slog.Any("error", err))
 	}
 }

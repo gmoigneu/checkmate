@@ -1,7 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+	applyAppearancePreferences,
+	browserAppearanceStorage,
+	readAppearancePreferences,
+} from "@/lib/appearance";
 
 import appCss from "../styles.css?url";
 
@@ -36,6 +41,19 @@ export const Route = createRootRoute({
 });
 
 function RootDocument({ children }: { children: ReactNode }) {
+	useEffect(() => {
+		const media = window.matchMedia("(prefers-color-scheme: dark)");
+		const apply = () =>
+			applyAppearancePreferences(
+				readAppearancePreferences(browserAppearanceStorage()),
+				document.documentElement,
+				media.matches,
+			);
+		apply();
+		media.addEventListener("change", apply);
+		return () => media.removeEventListener("change", apply);
+	}, []);
+
 	return (
 		<html lang="en">
 			<head>

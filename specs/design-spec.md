@@ -1214,8 +1214,11 @@ are closed; the design should assume the resolved behaviour.
    self-register at first launch and persist the `client_id`. Design consequence: a
    reinstall means a new `client_id`, so **consent is asked again** — `I1`/`M1` should
    not present re-consent as an error. Redirect URI is the app's choice; a
-   reversed-domain scheme (`com.moigneu.checkmate:/oauth/callback`) is more reliable
-   in `ASWebAuthenticationSession` than loopback.
+   reversed-domain scheme (`io.nls.checkmate:/oauth/callback`) is used for the app
+   callback. After consent, the server renders an explicit **Open Checkmate** link:
+   Safari/WebKit does not reliably follow a custom scheme delivered directly in an
+   HTTP redirect, while the user-initiated navigation completes
+   `ASWebAuthenticationSession`.
 8. **No push — confirmed, local-only.** Badges and reminders are computed on-device
    from synced data. Say so wherever one is used, and note the limit: nothing fires
    while the app has not synced recently.
