@@ -129,14 +129,17 @@ const openTaskStatuses = [
 	"delegated",
 ] satisfies TaskStatus[];
 const openTaskStatusQuery = openTaskStatuses.join(",");
-const nonRoutineTaskKinds = [
-	"short",
-	"long",
-	"blocked",
-	"delegated",
-	"recurring",
-] satisfies Task["kind"][];
-const nonRoutineTaskKindFilter = nonRoutineTaskKinds.join(",");
+const taskKinds: Record<Task["kind"], true> = {
+	short: true,
+	long: true,
+	blocked: true,
+	delegated: true,
+	recurring: true,
+	routine: true,
+};
+const nonRoutineTaskKindFilter = (Object.keys(taskKinds) as Task["kind"][])
+	.filter((kind) => kind !== "routine")
+	.join(",");
 
 function refreshTaskQueries(
 	queryClient: ReturnType<typeof useQueryClient>,
