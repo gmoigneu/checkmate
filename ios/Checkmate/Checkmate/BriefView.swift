@@ -4,10 +4,7 @@ import SwiftUI
 struct BriefView: View {
   @Environment(AppModel.self) private var model
   @State private var selectedContextId: String?
-  @State private var selectedDate = Date.now
-  @State private var isLoadingDate = false
-
-  private var dateString: String { CalendarDate.string(selectedDate) }
+  @State private var isLoading = false
 
   var body: some View {
     NavigationStack {
@@ -31,32 +28,9 @@ struct BriefView: View {
         }
         .refreshable { await loadBrief() }
       }
-      .navigationTitle(
-        Calendar.current.isDateInToday(selectedDate)
-          ? "Today" : selectedDate.formatted(date: .complete, time: .omitted)
-      )
+      .navigationTitle("Today")
       .navigationBarTitleDisplayMode(.large)
       .toolbar {
-        ToolbarItem(placement: .topBarLeading) {
-          HStack(spacing: 4) {
-            Button {
-              stepDate(-1)
-            } label: {
-              Image(systemName: "chevron.left")
-            }
-            Button("Today") {
-              selectedDate = .now
-              _Concurrency.Task { await loadBrief() }
-            }
-            .font(.caption)
-            Button {
-              stepDate(1)
-            } label: {
-              Image(systemName: "chevron.right")
-            }
-          }
-          .disabled(isLoadingDate)
-        }
         ToolbarItem(placement: .topBarTrailing) {
           Menu {
             Button("All contexts") { selectContext(nil) }
@@ -70,7 +44,7 @@ struct BriefView: View {
           }
         }
       }
-      .overlay { if isLoadingDate { ProgressView().controlSize(.large) } }
+      .overlay { if isLoading { ProgressView().controlSize(.large) } }
       .navigationDestination(for: CheckmateTask.self) { TaskDetailView(task: $0) }
     }
   }
@@ -87,7 +61,7 @@ struct BriefView: View {
         title: "Routine · \(brief.totals.routineDone)/\(brief.totals.routine)", tasks: brief.routine
       )
     }
-    if dateString <= CalendarDate.string(.now), !brief.inProgress.isEmpty {
+    if !brief.inProgress.isEmpty {
       TaskCardSection(title: "In progress · \(brief.totals.inProgress)", tasks: brief.inProgress)
     }
     if !brief.overdue.isEmpty {
@@ -114,11 +88,11 @@ struct BriefView: View {
       TaskCardSection(
         title: "Inbox · \(brief.totals.inbox) · all contexts", tasks: Array(brief.inbox.prefix(3)))
     }
-    if dateString <= CalendarDate.string(.now), !brief.completedToday.isEmpty {
+    if !brief.completedToday.isEmpty {
       TaskCardSection(
         title: "Completed · \(brief.totals.completedToday)", tasks: brief.completedToday)
     }
-    if dateString <= CalendarDate.string(.now), !brief.cancelledToday.isEmpty {
+    if !brief.cancelledToday.isEmpty {
       TaskCardSection(
         title: "Cancelled · \(brief.totals.cancelledToday)", tasks: brief.cancelledToday)
     }
@@ -129,18 +103,12 @@ struct BriefView: View {
     _Concurrency.Task { await loadBrief() }
   }
 
-  private func stepDate(_ value: Int) {
-    selectedDate =
-      Calendar.current.date(byAdding: .day, value: value, to: selectedDate) ?? selectedDate
-    _Concurrency.Task { await loadBrief() }
-  }
-
   private func loadBrief() async {
     guard let client = model.client else { return }
-    isLoadingDate = true
-    defer { isLoadingDate = false }
+    isLoading = true
+    defer { isLoading = false }
     do {
-      model.brief = try await client.brief(date: dateString, contextId: selectedContextId)
+      model.brief = try await client.brief(contextId: selectedContextId)
       model.isOffline = false
     } catch {
       model.isOffline = true
