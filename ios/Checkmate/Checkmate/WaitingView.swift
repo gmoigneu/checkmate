@@ -9,28 +9,26 @@ struct WaitingView: View {
   }
 
   var body: some View {
-    NavigationStack {
-      WarmPage {
-        ScrollView {
-          LazyVStack(spacing: 18) {
-            if model.isOffline { OfflineBanner(lastSyncAt: model.lastSyncAt) }
-            if groups.isEmpty {
-              ContentUnavailableView(
-                "Nothing waiting", systemImage: "hourglass",
-                description: Text("Delegated work will be grouped here by person.")
-              )
-              .padding(.top, 80)
-            }
-            ForEach(groups) { group in
-              TaskCardSection(title: group.personName, tasks: group.tasks)
-            }
+    WarmPage {
+      ScrollView {
+        LazyVStack(spacing: 18) {
+          if model.isOffline { OfflineBanner(lastSyncAt: model.lastSyncAt) }
+          if groups.isEmpty {
+            ContentUnavailableView(
+              "Nothing waiting", systemImage: "hourglass",
+              description: Text("Delegated work will be grouped here by person.")
+            )
+            .padding(.top, 80)
           }
-          .padding(12)
+          ForEach(groups) { group in
+            TaskCardSection(title: group.personName, tasks: group.tasks)
+          }
         }
-        .refreshable { await model.refresh() }
+        .padding(12)
       }
-      .navigationTitle("Waiting")
-      .navigationDestination(for: CheckmateTask.self) { TaskDetailView(task: $0) }
+      .refreshable { await model.refresh() }
     }
+    .navigationTitle("Waiting")
+    .navigationDestination(for: CheckmateTask.self) { TaskDetailView(task: $0) }
   }
 }

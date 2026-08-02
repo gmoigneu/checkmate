@@ -1,6 +1,89 @@
 import CheckmateCore
 import SwiftUI
 
+func isUpcomingTask(
+  status: TaskStatus, kind: TaskKind, dueOn: String?, deletedAt: String?, after date: String
+) -> Bool {
+  guard deletedAt == nil, kind != .routine, let dueOn, dueOn > date else {
+    return false
+  }
+
+  return switch status {
+  case .todo, .inProgress, .blocked, .delegated: true
+  case .inbox, .done, .cancelled, .expired: false
+  }
+}
+
+func isUpcomingTask(_ task: CheckmateTask, after date: String = CalendarDate.string(.now)) -> Bool {
+  isUpcomingTask(
+    status: task.status, kind: task.kind, dueOn: task.dueOn, deletedAt: task.deletedAt,
+    after: date)
+}
+
+struct UpcomingView: View {
+  @Environment(AppModel.self) private var model
+  @State private var selectedContextId: String?
+  var embedded = false
+
+  private var tasks: [CheckmateTask] {
+    model.tasks
+      .filter {
+        isUpcomingTask($0)
+          && (selectedContextId == nil || $0.contextId == selectedContextId)
+      }
+      .sorted {
+        if $0.dueOn != $1.dueOn { return ($0.dueOn ?? "") < ($1.dueOn ?? "") }
+        return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+      }
+  }
+
+  @ViewBuilder
+  var body: some View {
+    if embedded {
+      content
+    } else {
+      NavigationStack { content }
+    }
+  }
+
+  private var content: some View {
+    WarmPage {
+      ScrollView {
+        LazyVStack(spacing: 18) {
+          if model.isOffline { OfflineBanner(lastSyncAt: model.lastSyncAt) }
+          if tasks.isEmpty {
+            ContentUnavailableView(
+              "Nothing upcoming", systemImage: "calendar",
+              description: Text("Open tasks due after today will appear here.")
+            )
+            .padding(.top, 80)
+          } else {
+            TaskCardSection(title: "Due later · \(tasks.count)", tasks: tasks)
+          }
+        }
+        .padding(12)
+      }
+      .refreshable { await model.refresh() }
+    }
+    .navigationTitle("Upcoming")
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+          Button("All contexts") { selectedContextId = nil }
+          ForEach(model.contexts.filter { $0.archivedAt == nil }) { context in
+            Button(context.name) { selectedContextId = context.id }
+          }
+        } label: {
+          Image(
+            systemName: selectedContextId == nil
+              ? "slider.horizontal.3" : "line.3.horizontal.decrease.circle.fill")
+        }
+      }
+    }
+    .navigationDestination(for: CheckmateTask.self) { TaskDetailView(task: $0) }
+  }
+}
+
 struct ContextsView: View {
   @Environment(AppModel.self) private var model
   @State private var creating = false

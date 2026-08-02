@@ -368,7 +368,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				title="Upcoming"
 				description="Everything ahead, with an honest order."
 				contexts={appContexts}
-				defaultStatus="todo,in_progress"
+				defaultStatus="todo,in_progress,blocked,delegated"
 			/>
 		);
 	};
@@ -715,8 +715,22 @@ function BriefPage({
 		queryKey: briefQueryKey(date, contextId),
 		queryFn: () => api.brief(date, contextId),
 	});
+	const upcoming = useQuery({
+		queryKey: ["brief-upcoming", date, contextId ?? "all-contexts"],
+		queryFn: () => {
+			const parameters = new URLSearchParams({
+				due_after: dateOffset(date, 1),
+				status: "todo,in_progress,blocked,delegated",
+				limit: "100",
+			});
+			if (contextId) parameters.set("context_id", contextId);
+			return api.tasks(parameters);
+		},
+	});
 	const data = query.data ?? brief;
 	const hasCurrentData = Boolean(query.data);
+	const hasUpcomingTasks =
+		upcoming.data?.data.some((task) => task.kind !== "routine") ?? false;
 	const canonical = useMemo(() => buildBriefSections(data), [data]);
 	const openWork = canonical.openTaskCount + data.totals.routine_open;
 	const completedWork = data.totals.completed_today + data.totals.routine_done;
@@ -773,6 +787,20 @@ function BriefPage({
 					stage="project"
 					onDismiss={dismissProjectOnboarding}
 				/>
+			) : null}
+			{hasUpcomingTasks ? (
+				<Link
+					to="/tasks"
+					className="mt-6 flex items-center gap-3 rounded-xl border border-[var(--olive-300)]/60 bg-[var(--olive-050)] px-4 py-3 text-[var(--olive-600)] transition-colors hover:border-[var(--olive-300)] hover:text-[var(--olive-600)]"
+				>
+					<CalendarDays className="size-4 shrink-0" />
+					<span className="min-w-0 flex-1 text-sm">
+						You have tasks due after this day.
+					</span>
+					<span className="flex shrink-0 items-center gap-1 text-sm font-medium">
+						View Upcoming <ArrowRight className="size-3.5" />
+					</span>
+				</Link>
 			) : null}
 			{!hasCurrentData ? (
 				<LoadingPage />
@@ -2008,7 +2036,9 @@ function TaskListPage({
 						aria-label={`Filter ${title.toLowerCase()} by status`}
 					>
 						<option value="">Any status</option>
-						<option value="todo,in_progress">Open work</option>
+						<option value="todo,in_progress,blocked,delegated">
+							Open work
+						</option>
 						{taskListStatusFilters.map((status) => (
 							<option key={status} value={status}>
 								{taskStatusOptions[status].label}

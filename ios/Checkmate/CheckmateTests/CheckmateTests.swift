@@ -1,3 +1,4 @@
+import CheckmateCore
 import SwiftUI
 import Testing
 
@@ -13,5 +14,22 @@ struct CheckmateTests {
 
   @Test func everyAppearanceHasAnIcon() {
     #expect(AppearanceOption.allCases.allSatisfy { !$0.icon.isEmpty })
+  }
+
+  @Test func upcomingRequiresOpenFutureDatedWork() {
+    let today = "2026-08-01"
+
+    #expect(
+      isUpcomingTask(
+        status: .todo, kind: .short, dueOn: "2026-08-02", deletedAt: nil, after: today))
+    #expect(
+      !isUpcomingTask(
+        status: .todo, kind: .short, dueOn: today, deletedAt: nil, after: today))
+    #expect(
+      !isUpcomingTask(
+        status: .done, kind: .short, dueOn: "2026-08-02", deletedAt: nil, after: today))
+    #expect(
+      !isUpcomingTask(
+        status: .todo, kind: .routine, dueOn: "2026-08-02", deletedAt: nil, after: today))
   }
 }
