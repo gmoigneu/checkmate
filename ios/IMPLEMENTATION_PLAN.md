@@ -7,11 +7,13 @@ offline writes.
 
 ## Product structure
 
-- **Main tabs:** Brief, Inbox, Capture, Waiting, Settings, matching the HTML.
-- **Secondary navigation:** contexts, projects, search, task detail, reports,
-  routines, and activity are reached from Brief and Settings.
-- **Reports:** generation and saved reports live under Settings. This keeps the
-  high-frequency task navigation unchanged while making the new web feature
+- **Main tabs:** Brief, Inbox, Capture, Upcoming, and More. Upcoming keeps
+  future-due work one tap away; More is the stable directory for secondary
+  destinations.
+- **Secondary navigation:** Waiting, search, contexts, projects, people,
+  routines, reports, activity, and Settings are all reachable from More.
+- **Reports:** generation and saved reports live under More. This keeps the
+  high-frequency task navigation unchanged while making the web feature
   available natively.
 - **Capture:** a centered tab opens a sheet instead of becoming a navigation
   destination. Draft text survives request failures.

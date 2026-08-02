@@ -3,7 +3,7 @@ import SwiftUI
 
 struct MainTabView: View {
   @Environment(AppModel.self) private var model
-  private enum Tab: Hashable { case brief, inbox, capture, waiting, settings }
+  private enum Tab: Hashable { case brief, inbox, capture, upcoming, more }
 
   @State private var selected: Tab = .brief
   @State private var previous: Tab = .brief
@@ -21,15 +21,13 @@ struct MainTabView: View {
       Color.clear
         .tabItem { Label("Capture", systemImage: "plus.circle.fill") }
         .tag(Tab.capture)
-      WaitingView()
-        .tabItem { Label("Waiting", systemImage: "hourglass") }
-        .badge(
-          model.brief?.totals.waitingOn ?? model.tasks.filter { $0.status == .delegated }.count
-        )
-        .tag(Tab.waiting)
-      SettingsView()
-        .tabItem { Label("Settings", systemImage: "gearshape") }
-        .tag(Tab.settings)
+      UpcomingView()
+        .tabItem { Label("Upcoming", systemImage: "calendar") }
+        .badge(model.tasks.filter { isUpcomingTask($0) }.count)
+        .tag(Tab.upcoming)
+      MoreView()
+        .tabItem { Label("More", systemImage: "ellipsis.circle") }
+        .tag(Tab.more)
     }
     .onChange(of: selected) { old, new in
       if new == .capture {
