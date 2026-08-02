@@ -23,6 +23,7 @@ import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as WaitingRouteImport } from './routes/waiting'
 import { Route as CSlugRouteImport } from './routes/c.$slug'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
+import { Route as SettingsSectionRouteImport } from './routes/settings.$section'
 import { Route as SettingsContextsRouteImport } from './routes/settings.contexts'
 import { Route as TTaskIdRouteImport } from './routes/t.$taskId'
 
@@ -96,6 +97,11 @@ const PProjectIdRoute = PProjectIdRouteImport.update({
   path: '/p/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsSectionRoute = SettingsSectionRouteImport.update({
+  id: '/$section',
+  path: '/$section',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsContextsRoute = SettingsContextsRouteImport.update({
   id: '/contexts',
   path: '/contexts',
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/waiting': typeof WaitingRoute
   '/c/$slug': typeof CSlugRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/settings/$section': typeof SettingsSectionRoute
   '/settings/contexts': typeof SettingsContextsRoute
   '/t/$taskId': typeof TTaskIdRoute
 }
@@ -140,6 +147,7 @@ export interface FileRoutesByTo {
   '/waiting': typeof WaitingRoute
   '/c/$slug': typeof CSlugRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/settings/$section': typeof SettingsSectionRoute
   '/settings/contexts': typeof SettingsContextsRoute
   '/t/$taskId': typeof TTaskIdRoute
 }
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/waiting': typeof WaitingRoute
   '/c/$slug': typeof CSlugRoute
   '/p/$projectId': typeof PProjectIdRoute
+  '/settings/$section': typeof SettingsSectionRoute
   '/settings/contexts': typeof SettingsContextsRoute
   '/t/$taskId': typeof TTaskIdRoute
 }
@@ -179,6 +188,7 @@ export interface FileRouteTypes {
     | '/waiting'
     | '/c/$slug'
     | '/p/$projectId'
+    | '/settings/$section'
     | '/settings/contexts'
     | '/t/$taskId'
   fileRoutesByTo: FileRoutesByTo
@@ -197,6 +207,7 @@ export interface FileRouteTypes {
     | '/waiting'
     | '/c/$slug'
     | '/p/$projectId'
+    | '/settings/$section'
     | '/settings/contexts'
     | '/t/$taskId'
   id:
@@ -215,6 +226,7 @@ export interface FileRouteTypes {
     | '/waiting'
     | '/c/$slug'
     | '/p/$projectId'
+    | '/settings/$section'
     | '/settings/contexts'
     | '/t/$taskId'
   fileRoutesById: FileRoutesById
@@ -337,6 +349,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/$section': {
+      id: '/settings/$section'
+      path: '/$section'
+      fullPath: '/settings/$section'
+      preLoaderRoute: typeof SettingsSectionRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/contexts': {
       id: '/settings/contexts'
       path: '/contexts'
@@ -355,10 +374,12 @@ declare module '@tanstack/react-router' {
 }
 
 interface SettingsRouteChildren {
+  SettingsSectionRoute: typeof SettingsSectionRoute
   SettingsContextsRoute: typeof SettingsContextsRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsSectionRoute: SettingsSectionRoute,
   SettingsContextsRoute: SettingsContextsRoute,
 }
 

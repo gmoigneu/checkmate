@@ -64,6 +64,26 @@ struct SettingsView: View {
               .pickerStyle(.segmented)
               .padding(12)
             }
+            InsetCard(
+              title: "Devices & tokens",
+              footer:
+                "New device tokens require a browser session, so they are created in the web app rather than from an existing device credential."
+            ) {
+              if let url = model.serverURL?.appending(path: "settings/devices") {
+                Link(destination: url) {
+                  HStack {
+                    row("Manage in web app", icon: "key.horizontal")
+                    Image(systemName: "arrow.up.right")
+                      .font(.caption)
+                      .foregroundStyle(CheckmateTheme.tertiary)
+                      .padding(.trailing, 12)
+                  }
+                }
+                .buttonStyle(.plain)
+              } else {
+                row("Manage in web app", value: "Sign in first", icon: "key.horizontal")
+              }
+            }
             InsetCard(title: "Shortcuts & widgets") {
               row("Set up Siri phrases", icon: "waveform")
               divider

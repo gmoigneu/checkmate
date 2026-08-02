@@ -3,7 +3,11 @@ import type {
 	Brief,
 	Collection,
 	Context,
+	CreatedDeviceToken,
+	DeviceToken,
+	Health,
 	Me,
+	OAuthGrant,
 	Person,
 	Project,
 	ProjectStatus,
@@ -46,7 +50,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+	health: () => request<Health>("/healthz"),
 	me: () => request<Me>("/v1/me"),
+	logout: (everywhere = false) =>
+		request<void>(`/v1/logout${everywhere ? "?everywhere=true" : ""}`, {
+			method: "POST",
+		}),
+	tokens: () => request<Collection<DeviceToken>>("/v1/tokens"),
+	createToken: (body: {
+		name: string;
+		scopes: Array<"read" | "write">;
+		expires_at?: string;
+	}) =>
+		request<CreatedDeviceToken>("/v1/tokens", {
+			method: "POST",
+			body: JSON.stringify(body),
+		}),
+	revokeToken: (id: string) =>
+		request<void>(`/v1/tokens/${id}`, { method: "DELETE" }),
+	grants: () => request<Collection<OAuthGrant>>("/v1/grants"),
+	revokeGrant: (id: string) =>
+		request<void>(`/v1/grants/${id}`, { method: "DELETE" }),
 	brief: (date?: string, contextId?: string) => {
 		const query = new URLSearchParams();
 		if (date) query.set("date", date);

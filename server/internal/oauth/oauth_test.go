@@ -178,6 +178,7 @@ func TestValidateRedirectURI(t *testing.T) {
 		{"http://evil.example.com/callback", "web", true},
 
 		// Private-use schemes are how mobile apps receive redirects.
+		{"com.example.app://oauth/callback", "native", false},
 		{"com.example.app:/oauth/callback", "native", false},
 		{"com.example.app:/oauth/callback", "web", true},
 		{"myapp:/callback", "native", true}, // not a reversed domain
@@ -384,10 +385,11 @@ func TestRedirectHosts(t *testing.T) {
 		"http://127.0.0.1:3000/cb",
 		"http://127.0.0.1:4000/cb",
 		"https://app.example.com/cb",
+		"io.nls.checkmate://oauth/callback",
 	})
 
 	// Distinct host:port values, in order, no duplicates.
-	want := []string{"127.0.0.1:3000", "127.0.0.1:4000", "app.example.com"}
+	want := []string{"127.0.0.1:3000", "127.0.0.1:4000", "app.example.com", "io.nls.checkmate"}
 
 	if len(got) != len(want) {
 		t.Fatalf("RedirectHosts = %v, want %v", got, want)
