@@ -23,6 +23,13 @@ struct CheckmateTests {
       isUpcomingTask(
         status: .todo, kind: .short, dueOn: "2026-08-02", deletedAt: nil, after: today))
     #expect(
+      isUpcomingTask(
+        status: .blocked, kind: .blocked, dueOn: "2026-08-02", deletedAt: nil, after: today))
+    #expect(
+      isUpcomingTask(
+        status: .delegated, kind: .delegated, dueOn: "2026-08-02", deletedAt: nil,
+        after: today))
+    #expect(
       !isUpcomingTask(
         status: .todo, kind: .short, dueOn: today, deletedAt: nil, after: today))
     #expect(
@@ -31,5 +38,9 @@ struct CheckmateTests {
     #expect(
       !isUpcomingTask(
         status: .todo, kind: .routine, dueOn: "2026-08-02", deletedAt: nil, after: today))
+    #expect(
+      !isUpcomingTask(
+        status: .todo, kind: .short, dueOn: "2026-08-02", deletedAt: "2026-08-01T12:00:00Z",
+        after: today))
   }
 }

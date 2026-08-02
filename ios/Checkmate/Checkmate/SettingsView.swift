@@ -13,7 +13,9 @@ struct MoreView: View {
               link("Upcoming", icon: "calendar", destination: UpcomingView(embedded: true))
               divider
               link(
-                "Waiting", value: model.brief?.totals.waitingOn,
+                "Waiting",
+                value: model.brief?.totals.waitingOn
+                  ?? model.tasks.filter { $0.status == .delegated }.count,
                 icon: "hourglass", destination: WaitingView())
               divider
               link("Search", icon: "magnifyingglass", destination: SearchTasksView())

@@ -122,6 +122,22 @@ const priorityOptions: Array<{ value: TaskPriority; label: string }> = [
 	{ value: "low", label: "Low" },
 ];
 
+const openTaskStatuses = [
+	"todo",
+	"in_progress",
+	"blocked",
+	"delegated",
+] satisfies TaskStatus[];
+const openTaskStatusQuery = openTaskStatuses.join(",");
+const nonRoutineTaskKinds = [
+	"short",
+	"long",
+	"blocked",
+	"delegated",
+	"recurring",
+] satisfies Task["kind"][];
+const nonRoutineTaskKindFilter = nonRoutineTaskKinds.join(",");
+
 function refreshTaskQueries(
 	queryClient: ReturnType<typeof useQueryClient>,
 	task: Task,
@@ -368,7 +384,7 @@ export function CheckmateApp({ detailId }: { detailId?: string }) {
 				title="Upcoming"
 				description="Everything ahead, with an honest order."
 				contexts={appContexts}
-				defaultStatus="todo,in_progress,blocked,delegated"
+				defaultStatus={openTaskStatusQuery}
 			/>
 		);
 	};
@@ -720,8 +736,9 @@ function BriefPage({
 		queryFn: () => {
 			const parameters = new URLSearchParams({
 				due_after: dateOffset(date, 1),
-				status: "todo,in_progress,blocked,delegated",
-				limit: "100",
+				status: openTaskStatusQuery,
+				kind: nonRoutineTaskKindFilter,
+				limit: "1",
 			});
 			if (contextId) parameters.set("context_id", contextId);
 			return api.tasks(parameters);
@@ -729,8 +746,7 @@ function BriefPage({
 	});
 	const data = query.data ?? brief;
 	const hasCurrentData = Boolean(query.data);
-	const hasUpcomingTasks =
-		upcoming.data?.data.some((task) => task.kind !== "routine") ?? false;
+	const hasUpcomingTasks = Boolean(upcoming.data?.data.length);
 	const canonical = useMemo(() => buildBriefSections(data), [data]);
 	const openWork = canonical.openTaskCount + data.totals.routine_open;
 	const completedWork = data.totals.completed_today + data.totals.routine_done;
@@ -2036,9 +2052,7 @@ function TaskListPage({
 						aria-label={`Filter ${title.toLowerCase()} by status`}
 					>
 						<option value="">Any status</option>
-						<option value="todo,in_progress,blocked,delegated">
-							Open work
-						</option>
+						<option value={openTaskStatusQuery}>Open work</option>
 						{taskListStatusFilters.map((status) => (
 							<option key={status} value={status}>
 								{taskStatusOptions[status].label}
