@@ -65,7 +65,6 @@ import {
 import {
 	contextPalette,
 	daysLate,
-	displayDate,
 	formatDate,
 	formatMinutes,
 	formatTimestamp,
@@ -723,7 +722,7 @@ function BriefPage({
 	projectsLoaded: boolean;
 	onOpenCapture: () => void;
 }) {
-	const [date, setDate] = useState(brief.date || todayString());
+	const date = todayString();
 	const [contextId, setContextId] = useState<string>();
 	const projectPromptDismissed = useSyncExternalStore(
 		subscribeProjectOnboarding,
@@ -761,34 +760,8 @@ function BriefPage({
 	return (
 		<section className="cm-brief">
 			<div className="cm-brief-header">
-				<h1>{displayDate(data.date)}</h1>
+				<h1>Today</h1>
 				<div className="cm-brief-actions">
-					<div className="cm-day-controls">
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							onClick={() => setDate(dateOffset(date, -1))}
-							aria-label="Previous day"
-						>
-							<ChevronLeft className="size-4" />
-						</Button>
-						<Button
-							variant="ghost"
-							size="sm"
-							className="cm-today-button"
-							onClick={() => setDate(todayString())}
-						>
-							Today
-						</Button>
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							onClick={() => setDate(dateOffset(date, 1))}
-							aria-label="Next day"
-						>
-							<ChevronRight className="size-4" />
-						</Button>
-					</div>
 					{contexts.length ? (
 						<ContextFilter
 							contexts={contexts}
@@ -814,7 +787,7 @@ function BriefPage({
 				>
 					<CalendarDays className="size-4 shrink-0" />
 					<span className="min-w-0 flex-1 text-sm">
-						You have tasks due after this day.
+						You have tasks due after today.
 					</span>
 					<span className="flex shrink-0 items-center gap-1 text-sm font-medium">
 						View Upcoming <ArrowRight className="size-3.5" />
