@@ -599,6 +599,7 @@ holds no per-session state, so clients need not track an `Mcp-Session-Id`.
 | `create_task` | write | Title is the only requirement; no context means capture to the inbox |
 | `update_task` | write | Omitted fields are left alone; `clear_*` flags null a date |
 | `complete_task` | write | Its own tool because finishing is the commonest single action |
+| `cancel_task` | write | Records the decision not to do the work; distinct from deleting it |
 | `delete_task` | write | Tombstones the subtree and unblocks dependents |
 | `delegate_task` | write | Takes a person's *name*, creating them if new |
 | `triage_task` | write | Turns an inbox capture into a real task |
