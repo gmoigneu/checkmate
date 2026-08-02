@@ -212,6 +212,16 @@ func TestMCPInitialize(t *testing.T) {
 	if !strings.Contains(instructions, "inbox") {
 		t.Errorf("instructions do not explain the inbox: %q", instructions)
 	}
+
+	for _, concept := range []string{"open-ended", "daily_brief"} {
+		if !strings.Contains(instructions, concept) {
+			t.Errorf("instructions do not mention %q: %q", concept, instructions)
+		}
+	}
+
+	if len(instructions) > 600 {
+		t.Errorf("instructions use %d bytes, want at most 600", len(instructions))
+	}
 }
 
 func TestMCPRequiresAuthentication(t *testing.T) {

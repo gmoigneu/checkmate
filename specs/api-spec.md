@@ -489,7 +489,7 @@ implementation knowingly reads a MUST as not applicable.**
 
 ### 7.2 Tools
 
-Fifteen. Read tools need `read`, write tools need `write`.
+Sixteen. Read tools need `read`, write tools need `write`.
 
 | Tool | Scope | Notes |
 | --- | --- | --- |
@@ -501,6 +501,7 @@ Fifteen. Read tools need `read`, write tools need `write`.
 | `create_task` | write | Title only is enough; no context captures to the inbox |
 | `update_task` | write | `clear_*` flags null a date, since JSON cannot say "absent" in a flat schema |
 | `complete_task` | write | Its own tool: finishing is the commonest single action |
+| `cancel_task` | write | Records the decision not to do the work; distinct from deleting it |
 | `delete_task` | write | Subtree, and unblocks dependents |
 | `delegate_task` | write | Takes a **name**, creating the person if new |
 | `triage_task` | write | Inbox capture → real task, moving the status too |

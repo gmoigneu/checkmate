@@ -1222,7 +1222,7 @@ are closed; the design should assume the resolved behaviour.
 8. **No push — confirmed, local-only.** Badges and reminders are computed on-device
    from synced data. Say so wherever one is used, and note the limit: nothing fires
    while the app has not synced recently.
-9. ~~`/mcp` does not exist~~ → **implemented**, Streamable HTTP with 15 tools.
+9. ~~`/mcp` does not exist~~ → **implemented**, Streamable HTTP with 16 tools.
    `W15f` lists grants for clients that can now actually call something.
 10. **No undelete — resolved for tasks only.** `POST /v1/tasks/{id}/restore` brings
     back a task and exactly the subtree deleted with it, so an undo affordance can

@@ -43,22 +43,13 @@ const (
 // context, so it is written for a model rather than for a person: what the
 // vocabulary means, and which tool to reach for.
 const instructions = `Checkmate is a personal task manager.
-
-Structure:
-- A "context" is a top-level area of life or work (for example Upsun, Personal).
-  Every task belongs to at most one.
-- A "project" groups tasks inside a single context.
-- A task with no context is in the inbox: it was captured quickly and not yet
-  triaged. Creating a task without a context_id is the right way to capture
-  something when the area is not obvious.
-- "due_on" is when a task is actually due. "planned_on" is the day the user
-  intends to work on it. They are different and both optional.
-- A task delegated to someone has status "delegated" and names that person; use
-  delegate_task rather than setting the status by hand.
-
-Start with daily_brief for an overview of the day before making changes. Use
-list_contexts to learn the available context ids, since they are per-user.
-All dates are YYYY-MM-DD in the user's own timezone.`
+- Contexts are top-level areas; projects group tasks within one context.
+- No context_id means inbox/untriaged. Omit it when the context is unclear.
+- due_on is a deadline; planned_on is the intended work date. Both are optional.
+- For open-ended planning, use daily_brief.
+- Before assigning a context, use list_contexts; IDs are user-specific.
+- Use delegate_task, complete_task, or cancel_task instead of setting those statuses manually.
+- Dates use YYYY-MM-DD in the user's timezone.`
 
 // Handler serves the MCP endpoint.
 type Handler struct {
