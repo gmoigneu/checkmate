@@ -1,23 +1,34 @@
 import CheckmateCore
 import SwiftUI
 
-func isUpcomingTask(
-  status: TaskStatus, kind: TaskKind, dueOn: String?, deletedAt: String?, after date: String
-) -> Bool {
-  guard deletedAt == nil, kind != .routine, let dueOn, dueOn > date else {
-    return false
-  }
-
+func isUpcomingTask(status: TaskStatus, deletedAt: String?) -> Bool {
+  guard deletedAt == nil else { return false }
   return switch status {
   case .todo, .inProgress, .blocked, .delegated: true
   case .inbox, .done, .cancelled, .expired: false
   }
 }
 
-func isUpcomingTask(_ task: CheckmateTask, after date: String = CalendarDate.string(.now)) -> Bool {
-  isUpcomingTask(
-    status: task.status, kind: task.kind, dueOn: task.dueOn, deletedAt: task.deletedAt,
-    after: date)
+func isUpcomingTask(_ task: CheckmateTask) -> Bool {
+  isUpcomingTask(status: task.status, deletedAt: task.deletedAt)
+}
+
+func upcomingPriorityRank(_ priority: TaskPriority?) -> Int {
+  switch priority {
+  case .urgent: 0
+  case .high: 1
+  case .medium: 2
+  case .low: 3
+  case nil: 4
+  }
+}
+
+func upcomingTaskComesBefore(
+  priority: TaskPriority?, id: String, than otherPriority: TaskPriority?, otherID: String
+) -> Bool {
+  let rank = upcomingPriorityRank(priority)
+  let otherRank = upcomingPriorityRank(otherPriority)
+  return rank == otherRank ? id > otherID : rank < otherRank
 }
 
 struct UpcomingView: View {
@@ -26,15 +37,18 @@ struct UpcomingView: View {
   var embedded = false
 
   private var tasks: [CheckmateTask] {
-    model.tasks
-      .filter {
-        isUpcomingTask($0)
-          && (selectedContextId == nil || $0.contextId == selectedContextId)
-      }
-      .sorted {
-        if $0.dueOn != $1.dueOn { return ($0.dueOn ?? "") < ($1.dueOn ?? "") }
-        return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-      }
+    Array(
+      model.tasks
+        .filter {
+          isUpcomingTask($0)
+            && (selectedContextId == nil || $0.contextId == selectedContextId)
+        }
+        .sorted {
+          upcomingTaskComesBefore(
+            priority: $0.priority, id: $0.id, than: $1.priority, otherID: $1.id)
+        }
+        .prefix(200)
+    )
   }
 
   @ViewBuilder
@@ -54,11 +68,11 @@ struct UpcomingView: View {
           if tasks.isEmpty {
             ContentUnavailableView(
               "Nothing upcoming", systemImage: "calendar",
-              description: Text("Open tasks due after today will appear here.")
+              description: Text("Open work will appear here.")
             )
             .padding(.top, 80)
           } else {
-            TaskCardSection(title: "Due later · \(tasks.count)", tasks: tasks)
+            TaskCardSection(title: "Open work · \(tasks.count)", tasks: tasks)
           }
         }
         .padding(12)
