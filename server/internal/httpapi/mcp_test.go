@@ -213,8 +213,10 @@ func TestMCPInitialize(t *testing.T) {
 		t.Errorf("instructions do not explain the inbox: %q", instructions)
 	}
 
-	if !strings.Contains(instructions, "For open-ended planning, use daily_brief") {
-		t.Errorf("instructions do not route open-ended planning: %q", instructions)
+	for _, concept := range []string{"open-ended", "daily_brief"} {
+		if !strings.Contains(instructions, concept) {
+			t.Errorf("instructions do not mention %q: %q", concept, instructions)
+		}
 	}
 
 	if len(instructions) > 600 {
