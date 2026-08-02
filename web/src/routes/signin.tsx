@@ -5,6 +5,23 @@ import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 export const Route = createFileRoute("/signin")({ component: SignIn });
+
+function CheckmateLogo() {
+	return (
+		<div
+			aria-label="Checkmate"
+			className="mx-auto mb-6 grid size-16 grid-cols-5 grid-rows-5 rounded-2xl bg-[var(--coral)] p-2.5 shadow-[var(--shadow-accent)]"
+			role="img"
+		>
+			<span className="col-start-1 row-start-5 rounded-[2px] bg-white" />
+			<span className="col-start-2 row-start-4 rounded-[2px] bg-white/60" />
+			<span className="col-start-3 row-start-3 rounded-[2px] bg-white" />
+			<span className="col-start-4 row-start-2 rounded-[2px] bg-white/60" />
+			<span className="col-start-5 row-start-1 rounded-[2px] bg-white" />
+		</div>
+	);
+}
+
 function SignIn() {
 	const search = Route.useSearch() as { redirect_to?: string };
 	const config = useQuery({
@@ -23,9 +40,7 @@ function SignIn() {
 	return (
 		<main className="grid min-h-screen place-items-center bg-[var(--page)] p-5">
 			<section className="w-full max-w-md rounded-3xl border border-border bg-card p-8 text-center shadow-xl shadow-black/5">
-				<div className="mx-auto mb-6 grid size-14 place-items-center rounded-2xl bg-[var(--coral)] text-2xl font-black text-white">
-					C
-				</div>
+				<CheckmateLogo />
 				<p className="mb-2 font-display text-3xl tracking-tight">Checkmate</p>
 				<p className="mb-8 text-sm leading-6 text-muted-foreground">
 					One calm place for all the work that crosses your mind.
@@ -39,7 +54,7 @@ function SignIn() {
 						{config.data.providers.map((provider) => (
 							<Button
 								key={provider}
-								className="h-11 w-full bg-[var(--ink)] hover:bg-[var(--ink)]/90"
+								className="h-11 w-full bg-[var(--coral)] text-white shadow-[var(--shadow-accent)] hover:bg-[var(--coral-deep)] hover:text-white"
 								onClick={() => {
 									window.location.assign(
 										`/auth/login/${provider}?redirect_to=${encodeURIComponent(search.redirect_to || "/")}`,
