@@ -13,20 +13,33 @@ export const defaultAppearancePreferences: AppearancePreferences = {
 	reduceMotion: false,
 };
 
+export function browserAppearanceStorage(): Storage | undefined {
+	if (typeof window === "undefined") return undefined;
+	try {
+		return window.localStorage;
+	} catch {
+		return undefined;
+	}
+}
+
 export function readAppearancePreferences(
 	storage?: Pick<Storage, "getItem">,
 ): AppearancePreferences {
 	if (!storage) return defaultAppearancePreferences;
-	const appearance = storage.getItem("checkmate:appearance");
-	return {
-		appearance:
-			appearance === "light" || appearance === "dark" ? appearance : "system",
-		density:
-			storage.getItem("checkmate:density") === "compact"
-				? "compact"
-				: "comfortable",
-		reduceMotion: storage.getItem("checkmate:reduce-motion") === "true",
-	};
+	try {
+		const appearance = storage.getItem("checkmate:appearance");
+		return {
+			appearance:
+				appearance === "light" || appearance === "dark" ? appearance : "system",
+			density:
+				storage.getItem("checkmate:density") === "compact"
+					? "compact"
+					: "comfortable",
+			reduceMotion: storage.getItem("checkmate:reduce-motion") === "true",
+		};
+	} catch {
+		return defaultAppearancePreferences;
+	}
 }
 
 export function applyAppearancePreferences(
@@ -47,9 +60,17 @@ export function applyAppearancePreferences(
 
 export function saveAppearancePreferences(
 	preferences: AppearancePreferences,
-	storage: Pick<Storage, "setItem">,
+	storage?: Pick<Storage, "setItem">,
 ) {
-	storage.setItem("checkmate:appearance", preferences.appearance);
-	storage.setItem("checkmate:density", preferences.density);
-	storage.setItem("checkmate:reduce-motion", String(preferences.reduceMotion));
+	if (!storage) return;
+	try {
+		storage.setItem("checkmate:appearance", preferences.appearance);
+		storage.setItem("checkmate:density", preferences.density);
+		storage.setItem(
+			"checkmate:reduce-motion",
+			String(preferences.reduceMotion),
+		);
+	} catch {
+		// The current page still applies preferences when persistence is blocked.
+	}
 }

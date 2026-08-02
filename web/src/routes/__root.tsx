@@ -4,6 +4,7 @@ import { type ReactNode, useEffect } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
 	applyAppearancePreferences,
+	browserAppearanceStorage,
 	readAppearancePreferences,
 } from "@/lib/appearance";
 
@@ -44,7 +45,7 @@ function RootDocument({ children }: { children: ReactNode }) {
 		const media = window.matchMedia("(prefers-color-scheme: dark)");
 		const apply = () =>
 			applyAppearancePreferences(
-				readAppearancePreferences(window.localStorage),
+				readAppearancePreferences(browserAppearanceStorage()),
 				document.documentElement,
 				media.matches,
 			);

@@ -41,7 +41,9 @@ import {
 	type Appearance,
 	type AppearancePreferences,
 	applyAppearancePreferences,
+	browserAppearanceStorage,
 	type Density,
+	defaultAppearancePreferences,
 	readAppearancePreferences,
 	saveAppearancePreferences,
 } from "@/lib/appearance";
@@ -53,10 +55,10 @@ const apiDocumentationURL =
 	import.meta.env.VITE_CHECKMATE_API_DOCS_URL ??
 	"https://github.com/gmoigneu/checkmate/blob/main/specs/openapi.yaml";
 const appearancePreferenceEvent = "checkmate:appearance-preferences";
-const defaultAppearanceSnapshot = "system|comfortable|false";
+const defaultAppearanceSnapshot = `${defaultAppearancePreferences.appearance}|${defaultAppearancePreferences.density}|${defaultAppearancePreferences.reduceMotion}`;
 
 function appearanceSnapshot() {
-	const preferences = readAppearancePreferences(window.localStorage);
+	const preferences = readAppearancePreferences(browserAppearanceStorage());
 	return `${preferences.appearance}|${preferences.density}|${preferences.reduceMotion}`;
 }
 
@@ -70,7 +72,7 @@ function subscribeAppearancePreferences(onChange: () => void) {
 }
 
 function updateAppearancePreferences(next: AppearancePreferences) {
-	saveAppearancePreferences(next, window.localStorage);
+	saveAppearancePreferences(next, browserAppearanceStorage());
 	applyAppearancePreferences(
 		next,
 		document.documentElement,
