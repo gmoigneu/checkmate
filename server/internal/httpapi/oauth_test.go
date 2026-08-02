@@ -111,8 +111,8 @@ func (h *harness) consent(session, clientID, redirectURI string, extra url.Value
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 
 	res := h.send(req)
-	if res.Status != http.StatusFound {
-		h.t.Fatalf("consent POST = %d, want 302; body %s", res.Status, res.Body)
+	if res.Status != http.StatusSeeOther {
+		h.t.Fatalf("consent POST = %d, want 303; body %s", res.Status, res.Body)
 	}
 
 	return res.Header.Get("Location")
@@ -583,6 +583,69 @@ func TestConsentEscapesClientName(t *testing.T) {
 	}
 }
 
+func TestNativeAppConsentRendersExplicitHandoff(t *testing.T) {
+	tests := []struct {
+		decision         string
+		heading          string
+		forbiddenHeading string
+		callback         string
+	}{
+		{
+			decision:         "approve",
+			heading:          "Authorization approved",
+			forbiddenHeading: "Authorization declined",
+			callback:         "code=",
+		},
+		{
+			decision:         "deny",
+			heading:          "Authorization declined",
+			forbiddenHeading: "Authorization approved",
+			callback:         "error=access_denied",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.decision, func(t *testing.T) {
+			h := newHarness(t)
+			u := h.user("you@example.com")
+			session := h.session(u)
+
+			const redirectURI = "io.nls.checkmate:/oauth/callback"
+			clientID := h.registerClient(redirectURI)
+			q := authorizeParams(clientID, redirectURI, nil)
+			page := h.doCookie(http.MethodGet, "/oauth/authorize?"+q.Encode(), session, nil).
+				expect(http.StatusOK)
+
+			match := requestIDPattern.FindSubmatch(page.Body)
+			if match == nil {
+				t.Fatal("no request_id in the consent page")
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/oauth/authorize",
+				strings.NewReader(url.Values{
+					"request_id": {string(match[1])},
+					"decision":   {tt.decision},
+				}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.AddCookie(&http.Cookie{Name: "checkmate_session", Value: session})
+			req.Header.Set("Origin", testBaseURL)
+			req.Header.Set("Sec-Fetch-Site", "same-origin")
+
+			res := h.send(req).expect(http.StatusOK)
+			body := string(res.Body)
+			if !strings.Contains(body, tt.heading) ||
+				strings.Contains(body, tt.forbiddenHeading) ||
+				!strings.Contains(body, `href="io.nls.checkmate:/oauth/callback?`) ||
+				!strings.Contains(body, tt.callback) {
+				t.Errorf("native handoff page does not describe or link the %s result: %s", tt.decision, body)
+			}
+			if location := res.Header.Get("Location"); location != "" {
+				t.Errorf("native handoff unexpectedly redirects to %q", location)
+			}
+		})
+	}
+}
+
 func TestDenyingConsentRedirectsWithError(t *testing.T) {
 	h := newHarness(t)
 	u := h.user("you@example.com")
@@ -610,7 +673,7 @@ func TestDenyingConsentRedirectsWithError(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "checkmate_session", Value: session})
 	req.Header.Set("Origin", testBaseURL)
 
-	res := h.send(req).expect(http.StatusFound)
+	res := h.send(req).expect(http.StatusSeeOther)
 
 	location := res.Header.Get("Location")
 	if !strings.Contains(location, "error=access_denied") {

@@ -273,8 +273,8 @@ func ValidateRedirectURI(raw, applicationType string) error {
 		return errInvalidRequest("redirect_uri must be absolute")
 
 	default:
-		// A private-use scheme (com.example.app:/callback) is how mobile apps
-		// receive redirects, and is allowed for native clients only.
+		// A reversed-domain private-use scheme (com.example.app:/callback) is how
+		// mobile apps receive redirects, and is allowed for native clients only.
 		if applicationType != "native" {
 			return errInvalidRequest("a web client's redirect_uri must use https")
 		}
@@ -331,7 +331,9 @@ func RedirectHosts(redirectURIs []string) []string {
 		}
 
 		host := parsed.Host
-		if host == "" {
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			host = parsed.Scheme
+		} else if host == "" {
 			host = parsed.Scheme
 		}
 

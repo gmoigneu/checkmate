@@ -119,7 +119,9 @@ final class AppModel {
       throw ServerValidationError.invalidAddress
     }
     let oauth = OAuthService(baseURL: url)
-    let clientKey = "oauthClientId:\(url.absoluteString)"
+    // A registration is bound to its redirect URI. Including it prevents an app
+    // update from reusing a client ID registered for an obsolete callback.
+    let clientKey = "oauthClientId:\(url.absoluteString):\(oauth.redirectURI)"
     let clientId: String
     if let saved = defaults.string(forKey: clientKey) {
       clientId = saved

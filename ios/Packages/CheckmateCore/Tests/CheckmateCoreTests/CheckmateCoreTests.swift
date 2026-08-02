@@ -71,6 +71,12 @@ struct AuthenticationTests {
       try OAuthService.callbackParameters(from: url)
     }
   }
+
+  @Test func usesPrivateUseIOSCallback() {
+    let service = OAuthService(baseURL: URL(string: "https://checkmate.example")!)
+
+    #expect(service.redirectURI == "io.nls.checkmate:/oauth/callback")
+  }
 }
 
 @Suite("Duration text")
